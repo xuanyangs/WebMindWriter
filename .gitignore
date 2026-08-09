@@ -4,6 +4,8 @@ dist/
 reports/*.md
 samples/book-openings/*.md
 !samples/book-openings/.gitkeep
+feedback/*.jsonl
+feedback/*.json
 data/*.sqlite
 data/*.sqlite-*
 data/*.json

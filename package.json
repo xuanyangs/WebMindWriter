@@ -28,6 +28,8 @@
     "agent:teardown:text": "tsx src/index.ts agent:teardown:text",
     "agent:teardown:text:batch": "tsx src/index.ts agent:teardown:text:batch",
     "agent:teardown:text:ai": "tsx src/index.ts agent:teardown:text:ai",
+    "feedback:add": "tsx src/index.ts feedback:add",
+    "feedback:list": "tsx src/index.ts feedback:list",
     "test": "node --import tsx --test tests/rankDiff.test.ts",
     "check": "tsc --noEmit"
   },

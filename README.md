@@ -128,6 +128,19 @@ npm run agent:teardown:text:batch
 npm run agent:teardown:text:ai -- --book-id 7656411449241111576 --dry-run
 ```
 
+记录报告反馈：
+
+```bash
+npm run feedback:add -- --target local-b18e553753 --type text-teardown --rating 5 --note "第一钩判断有用"
+```
+
+查看反馈：
+
+```bash
+npm run feedback:list
+npm run feedback:list -- --summary
+```
+
 生成 AI 扫榜 prompt，不调用模型：
 
 ```bash
@@ -166,6 +179,7 @@ reports/latest-text-teardown.md
 reports/latest-text-teardown-ai.md
 reports/latest-text-teardown-ai.prompt.md
 samples/book-openings/*.md
+feedback/feedback.jsonl
 ```
 
 ## 需要提交和不需要提交
@@ -194,6 +208,8 @@ data/*.csv
 data/*.sqlite
 reports/*.md
 samples/book-openings/*.md
+feedback/*.jsonl
+feedback/*.json
 .env
 ```
 
@@ -244,5 +260,6 @@ npm run agent:teardown:text:ai -- --book-id 7656411449241111576 --dry-run
 
 1. 连续采集至少两轮，验证排名变化分析。
 2. 配置 `MODEL_API_KEY`，跑通真实 AI 扫榜和 AI 拆书报告。
-3. 给样本文本增加人工标注字段，例如第一钩、第一爽点、弃读点。
-4. 提供本地查询 API，给桌面端或 Web 端调用。
+3. 连续记录 10 条反馈，找出最有用和最没用的报告段落。
+4. 做原创选题 Loop，把高分拆书报告转成新书选题和写作配方。
+5. 提供本地查询 API，给桌面端或 Web 端调用。

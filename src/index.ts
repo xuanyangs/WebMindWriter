@@ -13,6 +13,8 @@ import { writeAgentScanReport } from "./reports/agentScanReport.js";
 import { writeBookTeardownReport } from "./reports/bookTeardownReport.js";
 import { writeScanReport } from "./reports/scanReport.js";
 import { writeTextTeardownReport } from "./reports/textTeardownReport.js";
+import { FeedbackStore } from "./feedback/feedbackStore.js";
+import { feedbackTypes, type FeedbackType } from "./feedback/feedbackTypes.js";
 import { SampleStore } from "./samples/sampleStore.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
@@ -509,6 +511,79 @@ program
     );
   });
 
+program
+  .command("feedback:add")
+  .description("记录一次报告反馈，用来改进后续 prompt 和模板")
+  .requiredOption("--target <id>", "反馈对象，例如 bookId、报告名或批次 ID")
+  .requiredOption("--type <type>", `反馈类型：${feedbackTypes.join(", ")}`)
+  .requiredOption("--rating <number>", "评分，1-5")
+  .option("--note <text>", "简短备注")
+  .option("--report-path <path>", "对应报告文件路径")
+  .action(async (options: {
+    target: string;
+    type: FeedbackType;
+    rating: string;
+    note?: string;
+    reportPath?: string;
+  }) => {
+    const record = await openFeedback().add({
+      target: options.target,
+      type: options.type,
+      rating: Number(options.rating),
+      note: options.note,
+      reportPath: options.reportPath
+    });
+
+    console.log(
+      `反馈已记录：${record.id} | ${record.type} | ${record.target} | ${record.rating}/5`
+    );
+  });
+
+program
+  .command("feedback:list")
+  .description("查看最近的报告反馈")
+  .option("--target <id>", "只看某个反馈对象")
+  .option("--type <type>", `只看某类反馈：${feedbackTypes.join(", ")}`)
+  .option("--limit <number>", "展示条数", "20")
+  .option("--summary", "只展示汇总")
+  .action(async (options: {
+    target?: string;
+    type?: FeedbackType;
+    limit: string;
+    summary?: boolean;
+  }) => {
+    const store = openFeedback();
+
+    if (options.summary) {
+      const rows = await store.summary();
+      if (rows.length === 0) {
+        console.log("还没有反馈记录。");
+        return;
+      }
+
+      for (const row of rows) {
+        console.log(`${row.type} | ${row.count} 条 | 平均 ${row.average}/5`);
+      }
+      return;
+    }
+
+    const rows = await store.list({
+      target: options.target,
+      type: options.type,
+      limit: Number(options.limit)
+    });
+
+    if (rows.length === 0) {
+      console.log("没有匹配的反馈记录。");
+      return;
+    }
+
+    for (const row of rows) {
+      const note = row.note ? ` | ${row.note}` : "";
+      console.log(`${row.createdAt} | ${row.type} | ${row.target} | ${row.rating}/5${note}`);
+    }
+  });
+
 type CliOptions = {
   url: string;
   limit: string;
@@ -730,6 +805,10 @@ function openDb(): SqliteRankStore {
 
 function openSamples(): SampleStore {
   return new SampleStore(config.sampleDir);
+}
+
+function openFeedback(): FeedbackStore {
+  return new FeedbackStore(config.feedbackDir);
 }
 
 async function findLatestBookItem(bookId: string): Promise<RankingItem | undefined> {
