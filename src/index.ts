@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Command } from "commander";
 import { config } from "./config.js";
+import { writeCloudApiContract } from "./cloud/cloudContract.js";
 import { writeCloudReadiness } from "./cloud/cloudReadiness.js";
 import { makeModelConfig } from "./agents/modelClient.js";
 import { writeAiRecipeReport } from "./agents/recipeAgent.js";
@@ -54,7 +55,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "project",
   "writing",
   "ui",
-  "cloud"
+  "cloud",
+  "cloud-contract"
 ];
 
 program
@@ -828,6 +830,15 @@ program
   });
 
 program
+  .command("agent:cloud:contract")
+  .description("生成云化 API 契约：端点、权限、额度和存储映射")
+  .action(async () => {
+    const result = await generateCloudApiContract();
+    console.log(`Cloud API contract JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud API contract 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1038,6 +1049,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "cloud") {
     await runCloudGoal(steps);
+  }
+
+  if (options.goal === "cloud-contract") {
+    await runCloudContractGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1453,6 +1468,18 @@ async function runCloudGoal(steps: AgentRunStep[]): Promise<void> {
       outputPath: result.reportPath
     };
   });
+
+  await runCloudContractGoal(steps);
+}
+
+async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化 API 契约", async () => {
+    const result = await generateCloudApiContract();
+    return {
+      detail: `生成 ${result.contract.endpoints.length} 个云化 API 端点契约`,
+      outputPath: result.reportPath
+    };
+  });
 }
 
 async function crawlOnce(options: CliOptions): Promise<void> {
@@ -1839,6 +1866,15 @@ async function generateCloudReadiness(): Promise<
   });
 }
 
+async function generateCloudApiContract(): Promise<
+  Awaited<ReturnType<typeof writeCloudApiContract>>
+> {
+  return writeCloudApiContract({
+    cloudDir: config.cloudDir,
+    reportDir: config.reportDir
+  });
+}
+
 async function resolveNovelProject(projectId?: string) {
   const project = projectId
     ? await readNovelProject(config.projectDir, projectId)
@@ -2094,15 +2130,17 @@ function buildAgentRunNextActions(
     actions.push("打开 ui/latest-dashboard.html，用本地工作台审阅完整创作链路");
   }
 
-  if (goal === "daily" || goal === "cloud") {
-    actions.push("审阅 latest-cloud，决定真实云化时选择的部署、数据库和登录方案");
+  if (goal === "daily" || goal === "cloud" || goal === "cloud-contract") {
+    actions.push(
+      "审阅 latest-cloud 和 latest-cloud-contract，决定真实云化时选择的部署、数据库和登录方案"
+    );
   }
 
   if (goal === "feedback-review") {
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI 和云化准备");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备和 API 契约");
   return actions;
 }
 

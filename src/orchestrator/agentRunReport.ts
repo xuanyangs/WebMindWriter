@@ -12,7 +12,8 @@ export type AgentRunGoal =
   | "project"
   | "writing"
   | "ui"
-  | "cloud";
+  | "cloud"
+  | "cloud-contract";
 
 export type AgentRunStepStatus = "done" | "skipped" | "failed";
 
