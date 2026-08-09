@@ -12,6 +12,9 @@ export type CloudServicePaths = {
   reportDir: string;
   projectDir: string;
   packageJsonPath: string;
+  databasePath: string;
+  sampleDir: string;
+  feedbackDir: string;
 };
 
 export type CloudServiceEntry = {
@@ -135,6 +138,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       cliCommand: "agent:cloud:services",
       httpTarget: "GET /api/admin/cloud/services",
       writes: ["cloud/service-registry.json", "reports/latest-cloud-services.md"]
+    },
+    {
+      id: "ideas-http-route",
+      callable: "runIdeasService",
+      purpose: "通过 authenticated HTTP route 触发 IdeaAgent 生成选题卡",
+      cliCommand: "agent:ideas",
+      httpTarget: "POST /api/ideas",
+      writes: ["reports/latest-ideas.md"]
     }
   ];
 }

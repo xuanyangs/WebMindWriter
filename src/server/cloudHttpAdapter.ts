@@ -7,10 +7,12 @@ import {
   runCloudReadinessService,
   writeCloudServiceRegistry
 } from "../services/cloudService.js";
+import { runIdeasService } from "../services/ideaService.js";
 
 export type CloudHttpRequest = {
   method: "GET" | "POST";
   path: string;
+  query?: Record<string, string>;
   session?: CloudHttpSession;
 };
 
@@ -42,6 +44,8 @@ export type CloudHttpServerSmokeResult = CloudHttpSmokeResult & {
 };
 
 export type CloudHttpAuthSmokeResult = CloudHttpSmokeResult;
+
+export type CloudHttpIdeasSmokeResult = CloudHttpSmokeResult;
 
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
@@ -90,6 +94,41 @@ export async function handleCloudHttpRequest(
     };
   }
 
+  if (request.method === "POST" && request.path === "/api/ideas") {
+    const denied = authorizeCloudRequest(request, ["author", "admin"]);
+    if (denied) return denied;
+
+    const result = await runIdeasService(paths, {
+      limit: readPositiveNumber(request.query?.limit, 5),
+      sampleLimit: readPositiveNumber(request.query?.sampleLimit, 8),
+      feedbackLimit: readPositiveNumber(request.query?.feedbackLimit, 20)
+    });
+
+    if (!result) {
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          error: "No latest rank batch. Run crawl:all or db:import first."
+        }
+      };
+    }
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        reportPath: result.reportPath,
+        batchId: result.batchId,
+        capturedAt: result.capturedAt,
+        ideaLimit: result.ideaLimit,
+        sampleCount: result.sampleCount,
+        feedbackCount: result.feedbackCount,
+        sourceReportCount: result.sourceReportCount
+      }
+    };
+  }
+
   return {
     status: 404,
     body: {
@@ -118,6 +157,12 @@ function authorizeCloudRequest(
       role: request.session?.role ?? "anonymous"
     }
   };
+}
+
+function readPositiveNumber(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export function createCloudHttpServer(paths: CloudServicePaths): http.Server {
@@ -288,6 +333,82 @@ export async function writeCloudHttpAuthSmokeReport(
   return { jsonPath, reportPath, smoke };
 }
 
+export async function writeCloudHttpIdeasSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpIdeasSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+  }[] = [
+    {
+      name: "author-ideas-allowed",
+      request: {
+        method: "POST",
+        path: "/api/ideas",
+        query: {
+          limit: "3",
+          sampleLimit: "4",
+          feedbackLimit: "10"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "anonymous-ideas-denied",
+      request: {
+        method: "POST",
+        path: "/api/ideas"
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "get-ideas-not-found",
+      request: {
+        method: "GET",
+        path: "/api/ideas",
+        session: authorSession()
+      },
+      expectedStatus: 404
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = await handleCloudHttpRequest(item.request, paths);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus,
+      detail:
+        response.status === item.expectedStatus
+          ? "matched expected status"
+          : `expected ${item.expectedStatus}, received ${response.status}`
+    });
+  }
+
+  const smoke: CloudHttpIdeasSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-ideas-smoke.json");
+  const reportPath = path.join(paths.reportDir, "latest-cloud-http-ideas.md");
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(reportPath, renderHttpIdeasSmokeReport(smoke, jsonPath), "utf8");
+
+  return { jsonPath, reportPath, smoke };
+}
+
 export async function writeCloudHttpServerSmokeReport(
   paths: CloudServicePaths
 ): Promise<{
@@ -375,6 +496,7 @@ async function handleNodeRequest(
     {
       method,
       path: url.pathname,
+      query: Object.fromEntries(url.searchParams.entries()),
       session: readSession(request)
     },
     paths
@@ -412,6 +534,13 @@ function adminSession(): CloudHttpSession {
   return {
     userId: "local-admin",
     role: "admin"
+  };
+}
+
+function authorSession(): CloudHttpSession {
+  return {
+    userId: "local-author",
+    role: "author"
   };
 }
 
@@ -512,6 +641,34 @@ function renderHttpAuthSmokeReport(
     "1. 用真实 Auth provider session 替换 x-webmind-role 本地头",
     "2. 把 AuthPolicyAgent 的 routeRules 接入更多 Agent API 路由",
     "3. 为 author/project-owner 路由增加 userId 和 projectId 级校验",
+    ""
+  ].join("\n");
+}
+
+function renderHttpIdeasSmokeReport(
+  smoke: CloudHttpIdeasSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Ideas Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 把 RecipeAgent、ProjectAgent 和 WritingAgent 继续接到 authenticated HTTP routes",
+    "2. 为 POST /api/ideas 增加 request schema validation",
+    "3. 用真实 session 替换本地 author/admin smoke session",
     ""
   ].join("\n");
 }
