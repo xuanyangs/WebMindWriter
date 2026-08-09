@@ -11,6 +11,7 @@ import { runIdeasService } from "../services/ideaService.js";
 import {
   runProjectChapterReadService,
   runProjectChapterRevisionReadService,
+  runProjectChapterRevisionRestoreService,
   runProjectChapterRevisionService,
   runProjectChapterSaveService,
   runProjectDetailService
@@ -76,6 +77,8 @@ export type CloudHttpProjectChapterSaveSmokeResult = CloudHttpSmokeResult;
 export type CloudHttpProjectChapterRevisionSmokeResult = CloudHttpSmokeResult;
 
 export type CloudHttpProjectChapterRevisionReadSmokeResult = CloudHttpSmokeResult;
+
+export type CloudHttpProjectChapterRevisionRestoreSmokeResult = CloudHttpSmokeResult;
 
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
@@ -353,6 +356,67 @@ async function handleCloudHttpRequestUnchecked(
           title: result.project.title,
           chapterNumber: result.chapterNumber,
           revision: result.revision
+        }
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      if (error instanceof Error && error.message.startsWith("Revision not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  const chapterRevisionRestoreRoute = matchProjectChapterRevisionRestoreRoute(request.path);
+  if (request.method === "POST" && chapterRevisionRestoreRoute) {
+    const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
+    if (denied) return denied;
+
+    const ownershipDenied = authorizeProjectOwnership(
+      request,
+      chapterRevisionRestoreRoute.projectId
+    );
+    if (ownershipDenied) return ownershipDenied;
+
+    try {
+      const result = await runProjectChapterRevisionRestoreService(
+        {
+          projectDir: paths.projectDir
+        },
+        {
+          projectId: chapterRevisionRestoreRoute.projectId,
+          chapterNumber: chapterRevisionRestoreRoute.chapterNumber,
+          revisionFile: chapterRevisionRestoreRoute.revisionFile,
+          note: readOptionalString(request.body?.note, "note")
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          projectId: result.project.id,
+          title: result.project.title,
+          chapter: result.chapter,
+          restoredFromRevision: result.restoredFromRevision,
+          backupRevisionPath: result.revisionPath,
+          note: result.note
         }
       };
     } catch (error) {
@@ -697,6 +761,27 @@ function matchProjectChapterRevisionReadRoute(
 ): { projectId: string; chapterNumber: number; revisionFile: string } | undefined {
   const match = pathname.match(
     /^\/api\/projects\/([^/]+)\/chapters\/([^/]+)\/revisions\/([^/]+)$/
+  );
+  if (!match) return undefined;
+
+  const chapterNumber = readPositiveNumber(
+    decodeURIComponent(match[2]),
+    1,
+    "chapterNumber"
+  );
+
+  return {
+    projectId: decodeURIComponent(match[1]),
+    chapterNumber,
+    revisionFile: readRevisionFileName(decodeURIComponent(match[3]), chapterNumber)
+  };
+}
+
+function matchProjectChapterRevisionRestoreRoute(
+  pathname: string
+): { projectId: string; chapterNumber: number; revisionFile: string } | undefined {
+  const match = pathname.match(
+    /^\/api\/projects\/([^/]+)\/chapters\/([^/]+)\/revisions\/([^/]+)\/restore$/
   );
   if (!match) return undefined;
 
@@ -2189,6 +2274,328 @@ export async function writeCloudHttpProjectChapterRevisionReadSmokeReport(
   return { jsonPath, reportPath, smoke };
 }
 
+export async function writeCloudHttpProjectChapterRevisionRestoreSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpProjectChapterRevisionRestoreSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const slug = "smoke-project-chapter-revision-restore";
+  const prepareProject = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: "/api/projects",
+      query: {
+        slug,
+        title: "Smoke Project Chapter Revision Restore"
+      },
+      session: authorSession()
+    },
+    paths
+  );
+  const projectId = typeof prepareProject.body.projectId === "string"
+    ? prepareProject.body.projectId
+    : slug;
+  const ownerSession = projectOwnerSession(projectId);
+  const chapterBasePath = `/api/projects/${encodeURIComponent(projectId)}/chapters/1`;
+  const prepareChapter = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: `/api/projects/${encodeURIComponent(projectId)}/chapters`,
+      query: {
+        chapter: "1",
+        force: "true"
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const sourceMarker = `revision-restore-source-${Date.now()}`;
+  const currentMarker = `revision-restore-current-${Date.now()}`;
+  const sourceSave = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: chapterBasePath,
+      body: {
+        content: `# Revision Restore Source\n\n${sourceMarker}\n`
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const nextSave = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: chapterBasePath,
+      body: {
+        content: `# Revision Restore Next\n\n${Date.now()}\n`
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const revisionFile = typeof nextSave.body.revisionPath === "string"
+    ? path.basename(nextSave.body.revisionPath)
+    : "chapter-001-missing.md";
+  const currentSave = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: chapterBasePath,
+      body: {
+        content: `# Revision Restore Current\n\n${currentMarker}\n`
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const restorePath = `${chapterBasePath}/revisions/${encodeURIComponent(revisionFile)}/restore`;
+  const restore = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: restorePath,
+      body: {
+        note: "restore smoke"
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const readRestored = await handleCloudHttpRequest(
+    {
+      method: "GET",
+      path: chapterBasePath,
+      session: ownerSession
+    },
+    paths
+  );
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+    response?: CloudHttpResponse;
+    validate?: (response: CloudHttpResponse) => string | undefined;
+  }[] = [
+    {
+      name: "prepare-project",
+      request: {
+        method: "POST",
+        path: "/api/projects",
+        query: {
+          slug,
+          title: "Smoke Project Chapter Revision Restore"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 200,
+      response: prepareProject
+    },
+    {
+      name: "prepare-chapter",
+      request: {
+        method: "POST",
+        path: `/api/projects/${encodeURIComponent(projectId)}/chapters`,
+        query: {
+          chapter: "1",
+          force: "true"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      response: prepareChapter
+    },
+    {
+      name: "prepare-source-save",
+      request: {
+        method: "POST",
+        path: chapterBasePath,
+        body: {
+          content: "# Revision Restore Source\n"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      response: sourceSave
+    },
+    {
+      name: "prepare-revision-file",
+      request: {
+        method: "POST",
+        path: chapterBasePath,
+        body: {
+          content: "# Revision Restore Next\n"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      response: nextSave,
+      validate: (response) =>
+        typeof response.body.revisionPath === "string"
+          ? undefined
+          : "expected source revisionPath"
+    },
+    {
+      name: "prepare-current-save",
+      request: {
+        method: "POST",
+        path: chapterBasePath,
+        body: {
+          content: "# Revision Restore Current\n"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      response: currentSave
+    },
+    {
+      name: "project-owner-restore-allowed",
+      request: {
+        method: "POST",
+        path: restorePath,
+        body: {
+          note: "restore smoke"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      response: restore,
+      validate: (response) => {
+        const chapter = response.body.chapter as { content?: unknown } | undefined;
+        if (typeof response.body.backupRevisionPath !== "string") {
+          return "expected backupRevisionPath";
+        }
+        return typeof chapter?.content === "string" &&
+          chapter.content.includes(sourceMarker) &&
+          !chapter.content.includes(currentMarker)
+          ? undefined
+          : "expected restored source content";
+      }
+    },
+    {
+      name: "read-restored-content",
+      request: {
+        method: "GET",
+        path: chapterBasePath,
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      response: readRestored,
+      validate: (response) => {
+        const chapter = response.body.chapter as { content?: unknown } | undefined;
+        return typeof chapter?.content === "string" &&
+          chapter.content.includes(sourceMarker) &&
+          !chapter.content.includes(currentMarker)
+          ? undefined
+          : "expected active chapter to match restored revision";
+      }
+    },
+    {
+      name: "author-restore-denied",
+      request: {
+        method: "POST",
+        path: restorePath,
+        session: authorSession()
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "project-owner-unowned-restore-denied",
+      request: {
+        method: "POST",
+        path: restorePath,
+        session: projectOwnerSession("another-project")
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "invalid-revision-file-bad-request",
+      request: {
+        method: "POST",
+        path: `${chapterBasePath}/revisions/%2E%2E%2Fchapter-001-bad.md/restore`,
+        session: ownerSession
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "invalid-note-bad-request",
+      request: {
+        method: "POST",
+        path: restorePath,
+        body: {
+          note: 123
+        },
+        session: ownerSession
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "missing-revision-not-found",
+      request: {
+        method: "POST",
+        path: `${chapterBasePath}/revisions/chapter-001-not-found.md/restore`,
+        session: ownerSession
+      },
+      expectedStatus: 404
+    },
+    {
+      name: "unknown-project-not-found",
+      request: {
+        method: "POST",
+        path: "/api/projects/not-a-real-project/chapters/1/revisions/chapter-001-not-found.md/restore",
+        session: adminSession()
+      },
+      expectedStatus: 404
+    },
+    {
+      name: "admin-restore-allowed",
+      request: {
+        method: "POST",
+        path: restorePath,
+        session: adminSession()
+      },
+      expectedStatus: 200
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = item.response ?? await handleCloudHttpRequest(item.request, paths);
+    const validationDetail = item.validate?.(response);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus && !validationDetail,
+      detail:
+        response.status !== item.expectedStatus
+          ? `expected ${item.expectedStatus}, received ${response.status}`
+          : validationDetail ?? "matched expected status"
+    });
+  }
+
+  const smoke: CloudHttpProjectChapterRevisionRestoreSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-project-chapter-revision-restore-smoke.json");
+  const reportPath = path.join(
+    paths.reportDir,
+    "latest-cloud-http-project-chapter-revision-restore.md"
+  );
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    reportPath,
+    renderHttpProjectChapterRevisionRestoreSmokeReport(smoke, jsonPath),
+    "utf8"
+  );
+
+  return { jsonPath, reportPath, smoke };
+}
+
 export async function writeCloudHttpWritingSmokeReport(
   paths: CloudServicePaths
 ): Promise<{
@@ -2969,6 +3376,34 @@ function renderHttpProjectChapterRevisionReadSmokeReport(
     "1. 把 revision read 接入章节编辑器的版本对比面板",
     "2. 增加从 revision 恢复章节正文的 route",
     "3. 为 revision 文件补充结构化 metadata，记录作者、note 和保存来源",
+    ""
+  ].join("\n");
+}
+
+function renderHttpProjectChapterRevisionRestoreSmokeReport(
+  smoke: CloudHttpProjectChapterRevisionRestoreSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Project Chapter Revision Restore Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 把 revision restore 接入章节编辑器的回滚按钮",
+    "2. 为 restore 操作增加确认状态和审计记录",
+    "3. 开始把项目编辑 API 接到本地 UI，而不是只生成静态报告",
     ""
   ].join("\n");
 }

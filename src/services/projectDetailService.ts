@@ -60,6 +60,12 @@ export type ProjectChapterRevisionReadResult = {
   };
 };
 
+export type ProjectChapterRevisionRestoreResult = ProjectChapterSaveResult & {
+  restoredFromRevision: ProjectChapterRevision & {
+    content: string;
+  };
+};
+
 export async function runProjectDetailService(
   paths: ProjectDetailServicePaths,
   options: { projectId: string }
@@ -261,6 +267,33 @@ export async function runProjectChapterRevisionReadService(
 
     throw error;
   }
+}
+
+export async function runProjectChapterRevisionRestoreService(
+  paths: ProjectDetailServicePaths,
+  options: {
+    projectId: string;
+    chapterNumber: number;
+    revisionFile: string;
+    note?: string;
+  }
+): Promise<ProjectChapterRevisionRestoreResult> {
+  const revision = await runProjectChapterRevisionReadService(paths, {
+    projectId: options.projectId,
+    chapterNumber: options.chapterNumber,
+    revisionFile: options.revisionFile
+  });
+  const saved = await runProjectChapterSaveService(paths, {
+    projectId: options.projectId,
+    chapterNumber: options.chapterNumber,
+    content: revision.revision.content,
+    note: options.note
+  });
+
+  return {
+    ...saved,
+    restoredFromRevision: revision.revision
+  };
 }
 
 async function readChapters(project: NovelProject): Promise<ProjectDetailChapter[]> {

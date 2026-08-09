@@ -229,6 +229,19 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
         "cloud/http-project-chapter-revision-read-smoke.json",
         "reports/latest-cloud-http-project-chapter-revision-read.md"
       ]
+    },
+    {
+      id: "project-chapter-revision-restore-http-route",
+      callable: "runProjectChapterRevisionRestoreService",
+      purpose: "通过 project-owner HTTP route 从指定 revision 恢复章节正文并备份当前稿",
+      cliCommand: "agent:cloud:http:project-chapter-revision-restore:check",
+      httpTarget: "POST /api/projects/{projectId}/chapters/{chapterNumber}/revisions/{revisionFile}/restore",
+      writes: [
+        "projects/<project-id>/chapters/chapter-001.md",
+        "projects/<project-id>/chapters/.revisions/*.md",
+        "cloud/http-project-chapter-revision-restore-smoke.json",
+        "reports/latest-cloud-http-project-chapter-revision-restore.md"
+      ]
     }
   ];
 }
