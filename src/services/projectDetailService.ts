@@ -22,6 +22,13 @@ export type ProjectDetailResult = {
   chapters: ProjectDetailChapter[];
 };
 
+export type ProjectChapterReadResult = {
+  project: NovelProject;
+  chapter: ProjectDetailChapter & {
+    content: string;
+  };
+};
+
 export async function runProjectDetailService(
   paths: ProjectDetailServicePaths,
   options: { projectId: string }
@@ -43,6 +50,47 @@ export async function runProjectDetailService(
     memoryPreview,
     chapters
   };
+}
+
+export async function runProjectChapterReadService(
+  paths: ProjectDetailServicePaths,
+  options: { projectId: string; chapterNumber: number }
+): Promise<ProjectChapterReadResult> {
+  const project = await readNovelProject(paths.projectDir, options.projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${options.projectId}`);
+  }
+
+  const chapterPath = path.join(
+    project.paths.chaptersDir,
+    `chapter-${String(options.chapterNumber).padStart(3, "0")}.md`
+  );
+
+  try {
+    const [stat, content] = await Promise.all([
+      fs.stat(chapterPath),
+      fs.readFile(chapterPath, "utf8")
+    ]);
+
+    return {
+      project,
+      chapter: {
+        fileName: path.basename(chapterPath),
+        chapterNumber: options.chapterNumber,
+        path: chapterPath,
+        sizeBytes: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+        excerpt: trimPreview(content, 500),
+        content
+      }
+    };
+  } catch (error) {
+    if (isMissingFile(error)) {
+      throw new Error(`Chapter not found: ${options.projectId}#${options.chapterNumber}`);
+    }
+
+    throw error;
+  }
 }
 
 async function readChapters(project: NovelProject): Promise<ProjectDetailChapter[]> {
@@ -86,12 +134,16 @@ async function readChapters(project: NovelProject): Promise<ProjectDetailChapter
 async function readPreview(filePath: string, limit: number): Promise<string> {
   try {
     const content = await fs.readFile(filePath, "utf8");
-    const compact = content.trim();
-    return compact.length > limit ? `${compact.slice(0, limit)}\n\n[已截断]` : compact;
+    return trimPreview(content, limit);
   } catch (error) {
     if (isMissingFile(error)) return "";
     throw error;
   }
+}
+
+function trimPreview(value: string, limit: number): string {
+  const compact = value.trim();
+  return compact.length > limit ? `${compact.slice(0, limit)}\n\n[已截断]` : compact;
 }
 
 function parseChapterNumber(fileName: string): number | undefined {

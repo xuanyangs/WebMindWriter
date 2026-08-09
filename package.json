@@ -53,6 +53,7 @@
     "agent:cloud:http:writing:check": "tsx src/index.ts agent:cloud:http:writing:check",
     "agent:cloud:http:validation:check": "tsx src/index.ts agent:cloud:http:validation:check",
     "agent:cloud:http:project-detail:check": "tsx src/index.ts agent:cloud:http:project-detail:check",
+    "agent:cloud:http:project-chapter:check": "tsx src/index.ts agent:cloud:http:project-chapter:check",
     "agent:run": "tsx src/index.ts agent:run",
     "feedback:add": "tsx src/index.ts feedback:add",
     "feedback:list": "tsx src/index.ts feedback:list",

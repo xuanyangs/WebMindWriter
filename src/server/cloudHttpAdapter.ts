@@ -8,7 +8,10 @@ import {
   writeCloudServiceRegistry
 } from "../services/cloudService.js";
 import { runIdeasService } from "../services/ideaService.js";
-import { runProjectDetailService } from "../services/projectDetailService.js";
+import {
+  runProjectChapterReadService,
+  runProjectDetailService
+} from "../services/projectDetailService.js";
 import { runProjectService } from "../services/projectService.js";
 import { runRecipeService } from "../services/recipeService.js";
 import { runWritingService } from "../services/writingService.js";
@@ -61,6 +64,8 @@ export type CloudHttpWritingSmokeResult = CloudHttpSmokeResult;
 export type CloudHttpValidationSmokeResult = CloudHttpSmokeResult;
 
 export type CloudHttpProjectDetailSmokeResult = CloudHttpSmokeResult;
+
+export type CloudHttpProjectChapterSmokeResult = CloudHttpSmokeResult;
 
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
@@ -307,6 +312,59 @@ async function handleCloudHttpRequestUnchecked(
     }
   }
 
+  const chapterReadRoute = matchProjectChapterRoute(request.path);
+  if (request.method === "GET" && chapterReadRoute) {
+    const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
+    if (denied) return denied;
+
+    const ownershipDenied = authorizeProjectOwnership(request, chapterReadRoute.projectId);
+    if (ownershipDenied) return ownershipDenied;
+
+    try {
+      const result = await runProjectChapterReadService(
+        {
+          projectDir: paths.projectDir
+        },
+        {
+          projectId: chapterReadRoute.projectId,
+          chapterNumber: chapterReadRoute.chapterNumber
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          projectId: result.project.id,
+          title: result.project.title,
+          chapter: result.chapter
+        }
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      if (error instanceof Error && error.message.startsWith("Chapter not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
   const chapterRoute = matchProjectChaptersRoute(request.path);
   if (request.method === "POST" && chapterRoute) {
     const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
@@ -458,6 +516,22 @@ function matchProjectRoute(pathname: string): { projectId: string } | undefined 
 
   return {
     projectId: decodeURIComponent(match[1])
+  };
+}
+
+function matchProjectChapterRoute(
+  pathname: string
+): { projectId: string; chapterNumber: number } | undefined {
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/chapters\/([^/]+)$/);
+  if (!match) return undefined;
+
+  return {
+    projectId: decodeURIComponent(match[1]),
+    chapterNumber: readPositiveNumber(
+      decodeURIComponent(match[2]),
+      1,
+      "chapterNumber"
+    )
   };
 }
 
@@ -985,6 +1059,171 @@ export async function writeCloudHttpProjectDetailSmokeReport(
 
   await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
   await fs.writeFile(reportPath, renderHttpProjectDetailSmokeReport(smoke, jsonPath), "utf8");
+
+  return { jsonPath, reportPath, smoke };
+}
+
+export async function writeCloudHttpProjectChapterSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpProjectChapterSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const prepareProject = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: "/api/projects",
+      session: authorSession()
+    },
+    paths
+  );
+  const projectId = typeof prepareProject.body.projectId === "string"
+    ? prepareProject.body.projectId
+    : "missing-project";
+  const ownerSession = projectOwnerSession(projectId);
+  const prepareChapter = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: `/api/projects/${encodeURIComponent(projectId)}/chapters`,
+      query: {
+        chapter: "1"
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const chapterPath = `/api/projects/${encodeURIComponent(projectId)}/chapters/1`;
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+  }[] = [
+    {
+      name: "prepare-project",
+      request: {
+        method: "POST",
+        path: "/api/projects",
+        session: authorSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "prepare-chapter",
+      request: {
+        method: "POST",
+        path: `/api/projects/${encodeURIComponent(projectId)}/chapters`,
+        query: {
+          chapter: "1"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "project-owner-chapter-read-allowed",
+      request: {
+        method: "GET",
+        path: chapterPath,
+        session: ownerSession
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "author-chapter-read-denied",
+      request: {
+        method: "GET",
+        path: chapterPath,
+        session: authorSession()
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "anonymous-chapter-read-denied",
+      request: {
+        method: "GET",
+        path: chapterPath
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "project-owner-unowned-chapter-denied",
+      request: {
+        method: "GET",
+        path: chapterPath,
+        session: projectOwnerSession("another-project")
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "invalid-chapter-bad-request",
+      request: {
+        method: "GET",
+        path: `/api/projects/${encodeURIComponent(projectId)}/chapters/zero`,
+        session: ownerSession
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "missing-chapter-not-found",
+      request: {
+        method: "GET",
+        path: `/api/projects/${encodeURIComponent(projectId)}/chapters/999`,
+        session: ownerSession
+      },
+      expectedStatus: 404
+    },
+    {
+      name: "unknown-project-not-found",
+      request: {
+        method: "GET",
+        path: "/api/projects/not-a-real-project/chapters/1",
+        session: adminSession()
+      },
+      expectedStatus: 404
+    },
+    {
+      name: "admin-chapter-read-allowed",
+      request: {
+        method: "GET",
+        path: chapterPath,
+        session: adminSession()
+      },
+      expectedStatus: 200
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = item.name === "prepare-project"
+      ? prepareProject
+      : item.name === "prepare-chapter"
+        ? prepareChapter
+        : await handleCloudHttpRequest(item.request, paths);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus,
+      detail:
+        response.status === item.expectedStatus
+          ? "matched expected status"
+          : `expected ${item.expectedStatus}, received ${response.status}`
+    });
+  }
+
+  const smoke: CloudHttpProjectChapterSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-project-chapter-smoke.json");
+  const reportPath = path.join(paths.reportDir, "latest-cloud-http-project-chapter.md");
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(reportPath, renderHttpProjectChapterSmokeReport(smoke, jsonPath), "utf8");
 
   return { jsonPath, reportPath, smoke };
 }
@@ -1604,6 +1843,34 @@ function renderHttpProjectDetailSmokeReport(
     "1. 增加项目章节内容读取 route，用于 Web 工作台打开单章",
     "2. 为 project detail 增加更细的 owner/editor/collaborator 权限模型",
     "3. 把项目详情接入桌面 UI 的项目面板",
+    ""
+  ].join("\n");
+}
+
+function renderHttpProjectChapterSmokeReport(
+  smoke: CloudHttpProjectChapterSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Project Chapter Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 增加章节保存/修订 route，让 Web 工作台能写回人工修改",
+    "2. 为章节内容返回增加版本号和最近修改者字段",
+    "3. 把章节读取接入桌面 UI 的项目详情页",
     ""
   ].join("\n");
 }

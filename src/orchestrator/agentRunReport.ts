@@ -26,7 +26,8 @@ export type AgentRunGoal =
   | "cloud-http-projects"
   | "cloud-http-writing"
   | "cloud-http-validation"
-  | "cloud-http-project-detail";
+  | "cloud-http-project-detail"
+  | "cloud-http-project-chapter";
 
 export type AgentRunStepStatus = "done" | "skipped" | "failed";
 

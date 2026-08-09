@@ -186,6 +186,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       cliCommand: "agent:cloud:http:project-detail:check",
       httpTarget: "GET /api/projects/{projectId}",
       writes: ["cloud/http-project-detail-smoke.json", "reports/latest-cloud-http-project-detail.md"]
+    },
+    {
+      id: "project-chapter-http-route",
+      callable: "runProjectChapterReadService",
+      purpose: "通过 project-owner HTTP route 读取小说项目单章 Markdown 内容",
+      cliCommand: "agent:cloud:http:project-chapter:check",
+      httpTarget: "GET /api/projects/{projectId}/chapters/{chapterNumber}",
+      writes: ["cloud/http-project-chapter-smoke.json", "reports/latest-cloud-http-project-chapter.md"]
     }
   ];
 }
