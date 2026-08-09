@@ -1,4 +1,4 @@
-# fanqie-loop
+# WebMindWriter / fanqie-loop
 
 番茄小说公开榜单采集与扫榜分析的最小 Loop 工程。
 
@@ -104,6 +104,7 @@ package.json
 package-lock.json
 .env.example
 .gitignore
+tsconfig.json
 ```
 
 不建议提交：
