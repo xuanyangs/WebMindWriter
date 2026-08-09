@@ -5,6 +5,7 @@ import { exportBatchToCsv, exportSnapshotToCsv } from "./csv.js";
 import { JsonSnapshotStore } from "./jsonSnapshotStore.js";
 import { getAllRankTargets } from "./rankTargets.js";
 import { summarizeBatch } from "./analysis/rankDiff.js";
+import { writeAgentScanReport } from "./reports/agentScanReport.js";
 import { writeScanReport } from "./reports/scanReport.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
 import type { RankBatch, RankSnapshot } from "./types.js";
@@ -254,6 +255,26 @@ program
     }
   });
 
+program
+  .command("agent:scan")
+  .description("基于 SQLite 最新批次生成作者决策版扫榜 Agent 报告")
+  .action(async () => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+
+      if (!batch) {
+        console.log("没有可生成 Agent 报告的批次，请先运行 npm run crawl:all。");
+        return;
+      }
+
+      const reportPath = await generateAgentReport(batch, db);
+      console.log(`Agent 报告已生成：${reportPath}`);
+    } finally {
+      db.close();
+    }
+  });
+
 type CliOptions = {
   url: string;
   limit: string;
@@ -370,6 +391,22 @@ async function generateReport(
   batch: RankBatch,
   db: SqliteRankStore
 ): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  return writeScanReport(batch, analysis, config.reportDir);
+}
+
+async function generateAgentReport(
+  batch: RankBatch,
+  db: SqliteRankStore
+): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  return writeAgentScanReport(batch, analysis, config.reportDir);
+}
+
+function buildBatchAnalysis(
+  batch: RankBatch,
+  db: SqliteRankStore
+) {
   const previousByRankName = new Map<string, RankSnapshot | undefined>();
 
   for (const snapshot of batch.snapshots) {
@@ -379,8 +416,19 @@ async function generateReport(
     );
   }
 
-  const analysis = summarizeBatch(batch, previousByRankName);
-  return writeScanReport(batch, analysis, config.reportDir);
+  return summarizeBatch(batch, previousByRankName);
+}
+
+async function loadLatestBatch(db: SqliteRankStore): Promise<RankBatch | undefined> {
+  const batch = db.getLatestBatch();
+  if (batch) return batch;
+
+  const jsonStore = new JsonSnapshotStore(config.dataDir);
+  const latestBatch = await jsonStore.readLatestBatch();
+  if (!latestBatch) return undefined;
+
+  db.saveBatch(latestBatch);
+  return latestBatch;
 }
 
 function printBatch(batch: RankBatch, limit: number): void {

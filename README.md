@@ -80,6 +80,12 @@ npm run query:book -- --book-id 7653392559628094488
 npm run report
 ```
 
+生成作者决策版扫榜 Agent 报告：
+
+```bash
+npm run agent:scan
+```
+
 ## 输出位置
 
 ```text
@@ -89,6 +95,7 @@ data/rank-batches.jsonl
 data/rank-snapshots.json
 data/fanqie-loop.sqlite
 reports/latest-scan-report.md
+reports/latest-agent-scan.md
 ```
 
 ## 需要提交和不需要提交
@@ -158,4 +165,5 @@ npm test
 
 1. 连续采集至少两轮，验证排名变化分析。
 2. 增加“爆款样本拆解”命令，把上升最快和新上榜作品交给拆书 Agent。
-3. 提供本地查询 API，给桌面端或 Web 端调用。
+3. 接入模型 API，把 `agent:scan` 从规则报告升级为真正的 Agent 报告。
+4. 提供本地查询 API，给桌面端或 Web 端调用。

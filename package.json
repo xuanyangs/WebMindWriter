@@ -18,6 +18,7 @@
     "query:rank": "tsx src/index.ts query:rank",
     "query:book": "tsx src/index.ts query:book",
     "report": "tsx src/index.ts report",
+    "agent:scan": "tsx src/index.ts agent:scan",
     "test": "node --import tsx --test tests/rankDiff.test.ts",
     "check": "tsc --noEmit"
   },
