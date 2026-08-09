@@ -207,6 +207,17 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
         "cloud/http-project-chapter-save-smoke.json",
         "reports/latest-cloud-http-project-chapter-save.md"
       ]
+    },
+    {
+      id: "project-chapter-revisions-http-route",
+      callable: "runProjectChapterRevisionService",
+      purpose: "通过 project-owner HTTP route 读取单章 revision 历史列表",
+      cliCommand: "agent:cloud:http:project-chapter-revisions:check",
+      httpTarget: "GET /api/projects/{projectId}/chapters/{chapterNumber}/revisions",
+      writes: [
+        "cloud/http-project-chapter-revisions-smoke.json",
+        "reports/latest-cloud-http-project-chapter-revisions.md"
+      ]
     }
   ];
 }

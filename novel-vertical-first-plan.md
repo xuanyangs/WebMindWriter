@@ -35,7 +35,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.14: Cloud HTTP Project Detail Route | Done | `npm run agent:cloud:http:project-detail:check` and `cloud/http-project-detail-smoke.json` |
 | Loop 6.15: Cloud HTTP Project Chapter Read Route | Done | `npm run agent:cloud:http:project-chapter:check` and `cloud/http-project-chapter-smoke.json` |
 | Loop 6.16: Cloud HTTP Project Chapter Save Route | Done | `npm run agent:cloud:http:project-chapter-save:check` and `cloud/http-project-chapter-save-smoke.json` |
+| Loop 6.17: Cloud HTTP Project Chapter Revisions Route | Done | `npm run agent:cloud:http:project-chapter-revisions:check` and `cloud/http-project-chapter-revisions-smoke.json` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud HTTP Project Chapter Save Route, add a project chapter revision history route for the Web workspace before choosing real deployment, database, and auth providers.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud HTTP Project Chapter Revisions Route, add a specific revision read route or connect chapter editing into the local UI before choosing real deployment, database, and auth providers.

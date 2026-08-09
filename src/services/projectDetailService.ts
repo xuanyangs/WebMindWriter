@@ -38,6 +38,20 @@ export type ProjectChapterSaveResult = ProjectChapterReadResult & {
   note?: string;
 };
 
+export type ProjectChapterRevision = {
+  fileName: string;
+  path: string;
+  sizeBytes: number;
+  updatedAt: string;
+  excerpt: string;
+};
+
+export type ProjectChapterRevisionResult = {
+  project: NovelProject;
+  chapterNumber: number;
+  revisions: ProjectChapterRevision[];
+};
+
 export async function runProjectDetailService(
   paths: ProjectDetailServicePaths,
   options: { projectId: string }
@@ -144,6 +158,63 @@ export async function runProjectChapterSaveService(
   };
 }
 
+export async function runProjectChapterRevisionService(
+  paths: ProjectDetailServicePaths,
+  options: { projectId: string; chapterNumber: number; limit: number }
+): Promise<ProjectChapterRevisionResult> {
+  const project = await readNovelProject(paths.projectDir, options.projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${options.projectId}`);
+  }
+
+  const revisionDir = path.join(project.paths.chaptersDir, ".revisions");
+  const prefix = `chapter-${String(options.chapterNumber).padStart(3, "0")}-`;
+
+  try {
+    const entries = await fs.readdir(revisionDir, { withFileTypes: true });
+    const revisionFiles = entries
+      .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith(".md"))
+      .map((entry) => entry.name)
+      .sort()
+      .reverse()
+      .slice(0, options.limit);
+
+    const revisions = await Promise.all(
+      revisionFiles.map(async (fileName) => {
+        const revisionPath = path.join(revisionDir, fileName);
+        const [stat, excerpt] = await Promise.all([
+          fs.stat(revisionPath),
+          readPreview(revisionPath, 500)
+        ]);
+
+        return {
+          fileName,
+          path: revisionPath,
+          sizeBytes: stat.size,
+          updatedAt: stat.mtime.toISOString(),
+          excerpt
+        };
+      })
+    );
+
+    return {
+      project,
+      chapterNumber: options.chapterNumber,
+      revisions
+    };
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return {
+        project,
+        chapterNumber: options.chapterNumber,
+        revisions: []
+      };
+    }
+
+    throw error;
+  }
+}
+
 async function readChapters(project: NovelProject): Promise<ProjectDetailChapter[]> {
   try {
     const entries = await fs.readdir(project.paths.chaptersDir, { withFileTypes: true });
@@ -193,7 +264,7 @@ async function writeRevision(
     await fs.mkdir(revisionDir, { recursive: true });
     const revisionPath = path.join(
       revisionDir,
-      `chapter-${String(chapterNumber).padStart(3, "0")}-${compactTime(new Date().toISOString())}.md`
+      `chapter-${String(chapterNumber).padStart(3, "0")}-${compactTime(new Date().toISOString())}-${process.hrtime.bigint().toString(36)}.md`
     );
     await fs.writeFile(revisionPath, previous, "utf8");
     return revisionPath;
