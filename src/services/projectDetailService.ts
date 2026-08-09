@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { readNovelProject, type NovelProject } from "../projects/novelProjectStore.js";
+import {
+  readNovelProject,
+  updateNovelProject,
+  type NovelProject
+} from "../projects/novelProjectStore.js";
 
 export type ProjectDetailServicePaths = {
   projectDir: string;
@@ -27,6 +31,11 @@ export type ProjectChapterReadResult = {
   chapter: ProjectDetailChapter & {
     content: string;
   };
+};
+
+export type ProjectChapterSaveResult = ProjectChapterReadResult & {
+  revisionPath?: string;
+  note?: string;
 };
 
 export async function runProjectDetailService(
@@ -93,6 +102,48 @@ export async function runProjectChapterReadService(
   }
 }
 
+export async function runProjectChapterSaveService(
+  paths: ProjectDetailServicePaths,
+  options: {
+    projectId: string;
+    chapterNumber: number;
+    content: string;
+    note?: string;
+  }
+): Promise<ProjectChapterSaveResult> {
+  const project = await readNovelProject(paths.projectDir, options.projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${options.projectId}`);
+  }
+
+  await fs.mkdir(project.paths.chaptersDir, { recursive: true });
+  const chapterPath = path.join(
+    project.paths.chaptersDir,
+    `chapter-${String(options.chapterNumber).padStart(3, "0")}.md`
+  );
+  const revisionPath = await writeRevision(chapterPath, project, options.chapterNumber);
+  const content = options.content.endsWith("\n") ? options.content : `${options.content}\n`;
+
+  await fs.writeFile(chapterPath, content, "utf8");
+  const nextProject = await updateNovelProject(project, { status: "drafting" });
+  const stat = await fs.stat(chapterPath);
+
+  return {
+    project: nextProject,
+    revisionPath,
+    note: options.note,
+    chapter: {
+      fileName: path.basename(chapterPath),
+      chapterNumber: options.chapterNumber,
+      path: chapterPath,
+      sizeBytes: stat.size,
+      updatedAt: stat.mtime.toISOString(),
+      excerpt: trimPreview(content, 500),
+      content
+    }
+  };
+}
+
 async function readChapters(project: NovelProject): Promise<ProjectDetailChapter[]> {
   try {
     const entries = await fs.readdir(project.paths.chaptersDir, { withFileTypes: true });
@@ -129,6 +180,31 @@ async function readChapters(project: NovelProject): Promise<ProjectDetailChapter
     if (isMissingFile(error)) return [];
     throw error;
   }
+}
+
+async function writeRevision(
+  chapterPath: string,
+  project: NovelProject,
+  chapterNumber: number
+): Promise<string | undefined> {
+  try {
+    const previous = await fs.readFile(chapterPath, "utf8");
+    const revisionDir = path.join(project.paths.chaptersDir, ".revisions");
+    await fs.mkdir(revisionDir, { recursive: true });
+    const revisionPath = path.join(
+      revisionDir,
+      `chapter-${String(chapterNumber).padStart(3, "0")}-${compactTime(new Date().toISOString())}.md`
+    );
+    await fs.writeFile(revisionPath, previous, "utf8");
+    return revisionPath;
+  } catch (error) {
+    if (isMissingFile(error)) return undefined;
+    throw error;
+  }
+}
+
+function compactTime(value: string): string {
+  return value.replace(/[-:.TZ]/g, "").slice(0, 14);
 }
 
 async function readPreview(filePath: string, limit: number): Promise<string> {

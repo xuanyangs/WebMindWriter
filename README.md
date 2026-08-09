@@ -316,6 +316,11 @@ npm run agent:cloud:http:project-detail:check
 npm run agent:cloud:http:project-chapter:check
 ```
 
+运行本地 Cloud HTTP Project chapter save route smoke check：
+```bash
+npm run agent:cloud:http:project-chapter-save:check
+```
+
 运行 Agent Orchestrator，一次编排扫榜、榜单拆书、本地文本拆书和反馈汇总：
 
 ```bash
@@ -350,6 +355,7 @@ npm run agent:run -- --goal cloud-http-writing
 npm run agent:run -- --goal cloud-http-validation
 npm run agent:run -- --goal cloud-http-project-detail
 npm run agent:run -- --goal cloud-http-project-chapter
+npm run agent:run -- --goal cloud-http-project-chapter-save
 ```
 
 默认不会重新抓取，也不会真实调用模型。需要联网抓榜时加 `--crawl`，需要真实调用模型时加 `--live-ai`：
@@ -418,6 +424,7 @@ reports/latest-cloud-http-writing.md
 reports/latest-cloud-http-validation.md
 reports/latest-cloud-http-project-detail.md
 reports/latest-cloud-http-project-chapter.md
+reports/latest-cloud-http-project-chapter-save.md
 reports/latest-agent-run.md
 reports/latest-agent-run.json
 ui/latest-dashboard.html
@@ -437,6 +444,7 @@ cloud/http-writing-smoke.json
 cloud/http-validation-smoke.json
 cloud/http-project-detail-smoke.json
 cloud/http-project-chapter-smoke.json
+cloud/http-project-chapter-save-smoke.json
 projects/<project-id>/
 projects/<project-id>/chapters/chapter-001.md
 samples/book-openings/*.md

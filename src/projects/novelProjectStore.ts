@@ -144,7 +144,9 @@ export async function readLatestNovelProject(
       if (project) projects.push(project);
     }
 
-    return projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    const sortedProjects = projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const userProject = sortedProjects.find((project) => !isSmokeProject(project));
+    return userProject ?? sortedProjects[0];
   } catch (error) {
     if (isMissingFile(error)) return undefined;
     throw error;
@@ -163,6 +165,10 @@ export async function updateNovelProject(
 
   await fs.writeFile(next.paths.metadata, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   return next;
+}
+
+function isSmokeProject(project: NovelProject): boolean {
+  return project.id.startsWith("smoke-");
 }
 
 function renderProjectReadme(project: NovelProject): string {

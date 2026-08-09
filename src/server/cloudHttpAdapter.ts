@@ -10,6 +10,7 @@ import {
 import { runIdeasService } from "../services/ideaService.js";
 import {
   runProjectChapterReadService,
+  runProjectChapterSaveService,
   runProjectDetailService
 } from "../services/projectDetailService.js";
 import { runProjectService } from "../services/projectService.js";
@@ -20,6 +21,7 @@ export type CloudHttpRequest = {
   method: "GET" | "POST";
   path: string;
   query?: Record<string, string>;
+  body?: Record<string, unknown>;
   session?: CloudHttpSession;
 };
 
@@ -66,6 +68,8 @@ export type CloudHttpValidationSmokeResult = CloudHttpSmokeResult;
 export type CloudHttpProjectDetailSmokeResult = CloudHttpSmokeResult;
 
 export type CloudHttpProjectChapterSmokeResult = CloudHttpSmokeResult;
+
+export type CloudHttpProjectChapterSaveSmokeResult = CloudHttpSmokeResult;
 
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
@@ -365,6 +369,52 @@ async function handleCloudHttpRequestUnchecked(
     }
   }
 
+  if (request.method === "POST" && chapterReadRoute) {
+    const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
+    if (denied) return denied;
+
+    const ownershipDenied = authorizeProjectOwnership(request, chapterReadRoute.projectId);
+    if (ownershipDenied) return ownershipDenied;
+
+    try {
+      const result = await runProjectChapterSaveService(
+        {
+          projectDir: paths.projectDir
+        },
+        {
+          projectId: chapterReadRoute.projectId,
+          chapterNumber: chapterReadRoute.chapterNumber,
+          content: readRequiredString(request.body?.content, "content"),
+          note: readOptionalString(request.body?.note, "note")
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          projectId: result.project.id,
+          title: result.project.title,
+          chapter: result.chapter,
+          revisionPath: result.revisionPath,
+          note: result.note
+        }
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
   const chapterRoute = matchProjectChaptersRoute(request.path);
   if (request.method === "POST" && chapterRoute) {
     const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
@@ -508,6 +558,19 @@ function readBoolean(value: string | undefined, field: string): boolean {
   if (["false", "0", "no"].includes(value)) return false;
 
   throw new CloudHttpValidationError(field, `${field} must be a boolean.`);
+}
+
+function readRequiredString(value: unknown, field: string): string {
+  if (typeof value === "string" && value.trim()) return value;
+
+  throw new CloudHttpValidationError(field, `${field} must be a non-empty string.`);
+}
+
+function readOptionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+
+  throw new CloudHttpValidationError(field, `${field} must be a string.`);
 }
 
 function matchProjectRoute(pathname: string): { projectId: string } | undefined {
@@ -1228,6 +1291,231 @@ export async function writeCloudHttpProjectChapterSmokeReport(
   return { jsonPath, reportPath, smoke };
 }
 
+export async function writeCloudHttpProjectChapterSaveSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpProjectChapterSaveSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const slug = "smoke-project-chapter-save";
+  const prepareProject = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: "/api/projects",
+      query: {
+        slug,
+        title: "Smoke Project Chapter Save"
+      },
+      session: authorSession()
+    },
+    paths
+  );
+  const projectId = typeof prepareProject.body.projectId === "string"
+    ? prepareProject.body.projectId
+    : slug;
+  const ownerSession = projectOwnerSession(projectId);
+  const prepareChapter = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: `/api/projects/${encodeURIComponent(projectId)}/chapters`,
+      query: {
+        chapter: "1",
+        force: "true"
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const marker = `save-smoke-${Date.now()}`;
+  const chapterPath = `/api/projects/${encodeURIComponent(projectId)}/chapters/1`;
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+    validate?: (response: CloudHttpResponse) => string | undefined;
+  }[] = [
+    {
+      name: "prepare-project",
+      request: {
+        method: "POST",
+        path: "/api/projects",
+        query: {
+          slug,
+          title: "Smoke Project Chapter Save"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "prepare-chapter",
+      request: {
+        method: "POST",
+        path: `/api/projects/${encodeURIComponent(projectId)}/chapters`,
+        query: {
+          chapter: "1",
+          force: "true"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "project-owner-save-allowed",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        body: {
+          content: `# Smoke Saved Chapter\n\n${marker}\n`,
+          note: "route smoke save"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      validate: (response) =>
+        typeof response.body.revisionPath === "string"
+          ? undefined
+          : "expected revisionPath in response"
+    },
+    {
+      name: "read-saved-content",
+      request: {
+        method: "GET",
+        path: chapterPath,
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      validate: (response) => {
+        const chapter = response.body.chapter as { content?: unknown } | undefined;
+        return typeof chapter?.content === "string" && chapter.content.includes(marker)
+          ? undefined
+          : "expected saved content marker";
+      }
+    },
+    {
+      name: "author-save-denied",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        body: {
+          content: "# Should Not Save\n"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "anonymous-save-denied",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        body: {
+          content: "# Should Not Save\n"
+        }
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "project-owner-unowned-save-denied",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        body: {
+          content: "# Should Not Save\n"
+        },
+        session: projectOwnerSession("another-project")
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "missing-content-bad-request",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        body: {},
+        session: ownerSession
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "invalid-content-bad-request",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        body: {
+          content: 123
+        },
+        session: ownerSession
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "unknown-project-not-found",
+      request: {
+        method: "POST",
+        path: "/api/projects/not-a-real-project/chapters/1",
+        body: {
+          content: "# Should Not Save\n"
+        },
+        session: adminSession()
+      },
+      expectedStatus: 404
+    },
+    {
+      name: "admin-save-allowed",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        body: {
+          content: `# Smoke Admin Saved Chapter\n\n${marker}-admin\n`
+        },
+        session: adminSession()
+      },
+      expectedStatus: 200
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = item.name === "prepare-project"
+      ? prepareProject
+      : item.name === "prepare-chapter"
+        ? prepareChapter
+        : await handleCloudHttpRequest(item.request, paths);
+    const validationDetail = item.validate?.(response);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus && !validationDetail,
+      detail:
+        response.status !== item.expectedStatus
+          ? `expected ${item.expectedStatus}, received ${response.status}`
+          : validationDetail ?? "matched expected status"
+    });
+  }
+
+  const smoke: CloudHttpProjectChapterSaveSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-project-chapter-save-smoke.json");
+  const reportPath = path.join(paths.reportDir, "latest-cloud-http-project-chapter-save.md");
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    reportPath,
+    renderHttpProjectChapterSaveSmokeReport(smoke, jsonPath),
+    "utf8"
+  );
+
+  return { jsonPath, reportPath, smoke };
+}
+
 export async function writeCloudHttpWritingSmokeReport(
   paths: CloudServicePaths
 ): Promise<{
@@ -1564,11 +1852,34 @@ async function handleNodeRequest(
 ): Promise<void> {
   const method = request.method === "POST" ? "POST" : "GET";
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  let body: Record<string, unknown> | undefined;
+
+  try {
+    body = method === "POST" ? await readJsonBody(request) : undefined;
+  } catch (error) {
+    if (error instanceof CloudHttpValidationError) {
+      const result = {
+        ok: false,
+        error: "Bad Request",
+        field: error.field,
+        message: error.message
+      };
+      response.writeHead(400, {
+        "content-type": "application/json; charset=utf-8"
+      });
+      response.end(JSON.stringify(result));
+      return;
+    }
+
+    throw error;
+  }
+
   const result = await handleCloudHttpRequest(
     {
       method,
       path: url.pathname,
       query: Object.fromEntries(url.searchParams.entries()),
+      body,
       session: readSession(request)
     },
     paths
@@ -1578,6 +1889,36 @@ async function handleNodeRequest(
     "content-type": "application/json; charset=utf-8"
   });
   response.end(JSON.stringify(result.body));
+}
+
+function readJsonBody(request: http.IncomingMessage): Promise<Record<string, unknown> | undefined> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    request.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf8").trim();
+      if (!raw) {
+        resolve(undefined);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          resolve(parsed as Record<string, unknown>);
+          return;
+        }
+
+        reject(new CloudHttpValidationError("body", "body must be a JSON object."));
+      } catch (error) {
+        if (error instanceof CloudHttpValidationError) reject(error);
+        else reject(new CloudHttpValidationError("body", "body must be valid JSON."));
+      }
+    });
+    request.on("error", reject);
+  });
 }
 
 function readSession(request: http.IncomingMessage): CloudHttpSession | undefined {
@@ -1871,6 +2212,34 @@ function renderHttpProjectChapterSmokeReport(
     "1. 增加章节保存/修订 route，让 Web 工作台能写回人工修改",
     "2. 为章节内容返回增加版本号和最近修改者字段",
     "3. 把章节读取接入桌面 UI 的项目详情页",
+    ""
+  ].join("\n");
+}
+
+function renderHttpProjectChapterSaveSmokeReport(
+  smoke: CloudHttpProjectChapterSaveSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Project Chapter Save Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 为章节保存增加版本历史读取 route",
+    "2. 把章节保存接入桌面 UI 的编辑器面板",
+    "3. 后续接入真实用户时，把 note、userId 和版本号写入 revision metadata",
     ""
   ].join("\n");
 }
