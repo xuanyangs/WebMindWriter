@@ -10,7 +10,8 @@ export type AgentRunGoal =
   | "idea"
   | "recipe"
   | "project"
-  | "writing";
+  | "writing"
+  | "ui";
 
 export type AgentRunStepStatus = "done" | "skipped" | "failed";
 

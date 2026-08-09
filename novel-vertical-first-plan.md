@@ -17,9 +17,9 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 2: RecipeAgent | Done | `npm run agent:recipe` and `reports/latest-recipe.md` |
 | Loop 3: Novel Project | Done | `npm run agent:project:create` and `projects/<project-id>/` |
 | Loop 4: WritingAgent | Done | `npm run agent:write:chapter` and `projects/<project-id>/chapters/chapter-001.md` |
-| Loop 5: Desktop UI | Next | Non-command-line author workflow |
-| Loop 6: Cloud Platform | Pending | Login, quotas, deployment, admin |
+| Loop 5: Desktop UI | Done | `npm run agent:ui:build` and `ui/latest-dashboard.html` |
+| Loop 6: Cloud Platform | Next | Login, quotas, deployment, admin |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After WritingAgent, the next highest-value link is Desktop UI.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Desktop UI, the next highest-value link is Cloud Platform planning and deployment boundaries.

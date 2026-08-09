@@ -38,6 +38,7 @@ import {
 import { SampleStore } from "./samples/sampleStore.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
+import { buildDashboard } from "./ui/dashboardBuilder.js";
 import { writeChapterDraft } from "./writing/chapterWriter.js";
 
 const program = new Command();
@@ -50,7 +51,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "idea",
   "recipe",
   "project",
-  "writing"
+  "writing",
+  "ui"
 ];
 
 program
@@ -806,6 +808,15 @@ program
   });
 
 program
+  .command("agent:ui:build")
+  .description("生成本地静态工作台 HTML")
+  .action(async () => {
+    const result = await generateDashboard();
+    console.log(`本地工作台已生成：${result.htmlPath}`);
+    console.log(`UI 构建报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -974,6 +985,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runRecipeGoal(steps, options.liveAi);
     await runProjectGoal(steps);
     await runWritingGoal(steps, options.liveAi);
+    await runUiGoal(steps);
   }
 
   if (options.goal === "scan") {
@@ -1006,6 +1018,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "writing") {
     await runWritingGoal(steps, options.liveAi);
+  }
+
+  if (options.goal === "ui") {
+    await runUiGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1401,6 +1417,16 @@ async function runWritingGoal(
   );
 }
 
+async function runUiGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "本地工作台", async () => {
+    const result = await generateDashboard();
+    return {
+      detail: "刷新本地静态 HTML 工作台",
+      outputPath: result.htmlPath
+    };
+  });
+}
+
 async function crawlOnce(options: CliOptions): Promise<void> {
   const jsonStore = new JsonSnapshotStore(config.dataDir);
   const limit = Number(options.limit);
@@ -1767,6 +1793,14 @@ async function generateAiChapterDraft(options: {
   });
 }
 
+async function generateDashboard(): Promise<Awaited<ReturnType<typeof buildDashboard>>> {
+  return buildDashboard({
+    reportDir: config.reportDir,
+    projectDir: config.projectDir,
+    uiDir: config.uiDir
+  });
+}
+
 async function resolveNovelProject(projectId?: string) {
   const project = projectId
     ? await readNovelProject(config.projectDir, projectId)
@@ -2018,11 +2052,15 @@ function buildAgentRunNextActions(
     actions.push("审阅 latest-writing 和章节草稿，把人工修改沉淀回项目 memory");
   }
 
+  if (goal === "daily" || goal === "ui") {
+    actions.push("打开 ui/latest-dashboard.html，用本地工作台审阅完整创作链路");
+  }
+
   if (goal === "feedback-review") {
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("下一阶段可以新增 Desktop UI：把扫榜到写作的命令链做成可视化工作台");
+  actions.push("下一阶段可以进入 Cloud：评估登录、额度、远程部署和管理后台边界");
   return actions;
 }
 

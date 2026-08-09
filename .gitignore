@@ -8,6 +8,7 @@ feedback/*.jsonl
 feedback/*.json
 projects/*
 !projects/.gitkeep
+ui/*.html
 data/*.sqlite
 data/*.sqlite-*
 data/*.json
