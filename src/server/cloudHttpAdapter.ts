@@ -8,6 +8,7 @@ import {
   writeCloudServiceRegistry
 } from "../services/cloudService.js";
 import { runIdeasService } from "../services/ideaService.js";
+import { runRecipeService } from "../services/recipeService.js";
 
 export type CloudHttpRequest = {
   method: "GET" | "POST";
@@ -46,6 +47,8 @@ export type CloudHttpServerSmokeResult = CloudHttpSmokeResult & {
 export type CloudHttpAuthSmokeResult = CloudHttpSmokeResult;
 
 export type CloudHttpIdeasSmokeResult = CloudHttpSmokeResult;
+
+export type CloudHttpRecipesSmokeResult = CloudHttpSmokeResult;
 
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
@@ -129,6 +132,49 @@ export async function handleCloudHttpRequest(
     };
   }
 
+  if (request.method === "POST" && request.path === "/api/recipes") {
+    const denied = authorizeCloudRequest(request, ["author", "admin"]);
+    if (denied) return denied;
+
+    try {
+      const result = await runRecipeService(
+        {
+          reportDir: paths.reportDir,
+          feedbackDir: paths.feedbackDir
+        },
+        {
+          ideaIndex: readOptionalPositiveNumber(request.query?.ideaIndex),
+          feedbackLimit: readPositiveNumber(request.query?.feedbackLimit, 20)
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          reportPath: result.reportPath,
+          ideasPath: result.ideasPath,
+          selectedIdeaIndex: result.selectedIdeaIndex,
+          selectedIdeaTitle: result.selectedIdeaTitle,
+          ideaCount: result.ideaCount,
+          feedbackCount: result.feedbackCount
+        }
+      };
+    } catch (error) {
+      if (isMissingFile(error)) {
+        return {
+          status: 409,
+          body: {
+            ok: false,
+            error: "No latest ideas report. Run agent:ideas first."
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
   return {
     status: 404,
     body: {
@@ -163,6 +209,21 @@ function readPositiveNumber(value: string | undefined, fallback: number): number
   if (!value) return fallback;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readOptionalPositiveNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "ENOENT"
+  );
 }
 
 export function createCloudHttpServer(paths: CloudServicePaths): http.Server {
@@ -405,6 +466,80 @@ export async function writeCloudHttpIdeasSmokeReport(
 
   await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
   await fs.writeFile(reportPath, renderHttpIdeasSmokeReport(smoke, jsonPath), "utf8");
+
+  return { jsonPath, reportPath, smoke };
+}
+
+export async function writeCloudHttpRecipesSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpRecipesSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+  }[] = [
+    {
+      name: "author-recipes-allowed",
+      request: {
+        method: "POST",
+        path: "/api/recipes",
+        query: {
+          feedbackLimit: "10"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "anonymous-recipes-denied",
+      request: {
+        method: "POST",
+        path: "/api/recipes"
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "get-recipes-not-found",
+      request: {
+        method: "GET",
+        path: "/api/recipes",
+        session: authorSession()
+      },
+      expectedStatus: 404
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = await handleCloudHttpRequest(item.request, paths);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus,
+      detail:
+        response.status === item.expectedStatus
+          ? "matched expected status"
+          : `expected ${item.expectedStatus}, received ${response.status}`
+    });
+  }
+
+  const smoke: CloudHttpRecipesSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-recipes-smoke.json");
+  const reportPath = path.join(paths.reportDir, "latest-cloud-http-recipes.md");
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(reportPath, renderHttpRecipesSmokeReport(smoke, jsonPath), "utf8");
 
   return { jsonPath, reportPath, smoke };
 }
@@ -669,6 +804,34 @@ function renderHttpIdeasSmokeReport(
     "1. 把 RecipeAgent、ProjectAgent 和 WritingAgent 继续接到 authenticated HTTP routes",
     "2. 为 POST /api/ideas 增加 request schema validation",
     "3. 用真实 session 替换本地 author/admin smoke session",
+    ""
+  ].join("\n");
+}
+
+function renderHttpRecipesSmokeReport(
+  smoke: CloudHttpRecipesSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Recipes Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 把 ProjectAgent 和 WritingAgent 继续接到 authenticated HTTP routes",
+    "2. 为 POST /api/recipes 增加 request schema validation",
+    "3. 把 recipes route 的输出接到 Web 工作台",
     ""
   ].join("\n");
 }

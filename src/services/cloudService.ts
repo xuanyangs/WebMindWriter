@@ -146,6 +146,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       cliCommand: "agent:ideas",
       httpTarget: "POST /api/ideas",
       writes: ["reports/latest-ideas.md"]
+    },
+    {
+      id: "recipes-http-route",
+      callable: "runRecipeService",
+      purpose: "通过 authenticated HTTP route 触发 RecipeAgent 生成写作配方",
+      cliCommand: "agent:recipe",
+      httpTarget: "POST /api/recipes",
+      writes: ["reports/latest-recipe.md"]
     }
   ];
 }
