@@ -162,6 +162,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       cliCommand: "agent:project:create",
       httpTarget: "POST /api/projects",
       writes: ["projects/<project-id>/", "reports/latest-project.md"]
+    },
+    {
+      id: "writing-http-route",
+      callable: "runWritingService",
+      purpose: "通过 project-owner HTTP route 触发 WritingAgent 生成章节草稿",
+      cliCommand: "agent:write:chapter",
+      httpTarget: "POST /api/projects/{projectId}/chapters",
+      writes: ["projects/<project-id>/chapters/chapter-001.md", "reports/latest-writing.md"]
     }
   ];
 }

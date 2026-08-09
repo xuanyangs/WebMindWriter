@@ -10,6 +10,7 @@ import {
 import { runIdeasService } from "../services/ideaService.js";
 import { runProjectService } from "../services/projectService.js";
 import { runRecipeService } from "../services/recipeService.js";
+import { runWritingService } from "../services/writingService.js";
 
 export type CloudHttpRequest = {
   method: "GET" | "POST";
@@ -52,6 +53,8 @@ export type CloudHttpIdeasSmokeResult = CloudHttpSmokeResult;
 export type CloudHttpRecipesSmokeResult = CloudHttpSmokeResult;
 
 export type CloudHttpProjectsSmokeResult = CloudHttpSmokeResult;
+
+export type CloudHttpWritingSmokeResult = CloudHttpSmokeResult;
 
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
@@ -223,6 +226,53 @@ export async function handleCloudHttpRequest(
     }
   }
 
+  const chapterRoute = matchProjectChaptersRoute(request.path);
+  if (request.method === "POST" && chapterRoute) {
+    const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
+    if (denied) return denied;
+
+    try {
+      const result = await runWritingService(
+        {
+          reportDir: paths.reportDir,
+          projectDir: paths.projectDir
+        },
+        {
+          projectId: chapterRoute.projectId,
+          chapterNumber: readPositiveNumber(
+            request.query?.chapterNumber ?? request.query?.chapter,
+            1
+          ),
+          force: readBoolean(request.query?.force)
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          reportPath: result.reportPath,
+          projectId: result.project.id,
+          chapterNumber: result.chapterNumber,
+          chapterPath: result.chapterPath,
+          wroteDraft: result.wroteDraft
+        }
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
   return {
     status: 404,
     body: {
@@ -267,6 +317,15 @@ function readOptionalPositiveNumber(value: string | undefined): number | undefin
 
 function readBoolean(value: string | undefined): boolean {
   return value === "true" || value === "1" || value === "yes";
+}
+
+function matchProjectChaptersRoute(pathname: string): { projectId: string } | undefined {
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/chapters$/);
+  if (!match) return undefined;
+
+  return {
+    projectId: decodeURIComponent(match[1])
+  };
 }
 
 function isMissingFile(error: unknown): boolean {
@@ -667,6 +726,115 @@ export async function writeCloudHttpProjectsSmokeReport(
   return { jsonPath, reportPath, smoke };
 }
 
+export async function writeCloudHttpWritingSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpWritingSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const prepareProject = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: "/api/projects",
+      session: authorSession()
+    },
+    paths
+  );
+  const projectId = typeof prepareProject.body.projectId === "string"
+    ? prepareProject.body.projectId
+    : "missing-project";
+  const chapterPath = `/api/projects/${encodeURIComponent(projectId)}/chapters`;
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+  }[] = [
+    {
+      name: "prepare-project",
+      request: {
+        method: "POST",
+        path: "/api/projects",
+        session: authorSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "project-owner-writing-allowed",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        query: {
+          chapter: "1"
+        },
+        session: projectOwnerSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "author-writing-denied",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        query: {
+          chapter: "1"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "anonymous-writing-denied",
+      request: {
+        method: "POST",
+        path: chapterPath
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "unknown-project-not-found",
+      request: {
+        method: "POST",
+        path: "/api/projects/not-a-real-project/chapters",
+        session: projectOwnerSession()
+      },
+      expectedStatus: 404
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = item.name === "prepare-project"
+      ? prepareProject
+      : await handleCloudHttpRequest(item.request, paths);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus,
+      detail:
+        response.status === item.expectedStatus
+          ? "matched expected status"
+          : `expected ${item.expectedStatus}, received ${response.status}`
+    });
+  }
+
+  const smoke: CloudHttpWritingSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-writing-smoke.json");
+  const reportPath = path.join(paths.reportDir, "latest-cloud-http-writing.md");
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(reportPath, renderHttpWritingSmokeReport(smoke, jsonPath), "utf8");
+
+  return { jsonPath, reportPath, smoke };
+}
+
 export async function writeCloudHttpServerSmokeReport(
   paths: CloudServicePaths
 ): Promise<{
@@ -799,6 +967,13 @@ function authorSession(): CloudHttpSession {
   return {
     userId: "local-author",
     role: "author"
+  };
+}
+
+function projectOwnerSession(): CloudHttpSession {
+  return {
+    userId: "local-author",
+    role: "project-owner"
   };
 }
 
@@ -983,6 +1158,34 @@ function renderHttpProjectsSmokeReport(
     "1. 把 WritingAgent 继续接到 authenticated HTTP routes",
     "2. 为 POST /api/projects 增加 slug/title/force request schema validation",
     "3. 把 project-owner 级项目读取和章节写作权限接入 AuthPolicyAgent",
+    ""
+  ].join("\n");
+}
+
+function renderHttpWritingSmokeReport(
+  smoke: CloudHttpWritingSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Writing Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 为 POST /api/projects/{projectId}/chapters 增加 request schema validation",
+    "2. 把 project-owner session 的 projectIds 校验接到真实 Auth provider",
+    "3. 把章节草稿结果接到 Web 工作台的项目详情页",
     ""
   ].join("\n");
 }

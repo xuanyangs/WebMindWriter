@@ -30,7 +30,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.9: Cloud HTTP IdeaAgent Route | Done | `npm run agent:cloud:http:ideas:check` and `cloud/http-ideas-smoke.json` |
 | Loop 6.10: Cloud HTTP RecipeAgent Route | Done | `npm run agent:cloud:http:recipes:check` and `cloud/http-recipes-smoke.json` |
 | Loop 6.11: Cloud HTTP ProjectAgent Route | Done | `npm run agent:cloud:http:projects:check` and `cloud/http-projects-smoke.json` |
+| Loop 6.12: Cloud HTTP WritingAgent Route | Done | `npm run agent:cloud:http:writing:check` and `cloud/http-writing-smoke.json` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud HTTP ProjectAgent Route, keep expanding authenticated Agent HTTP routes locally before choosing real deployment, database, and auth providers.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud HTTP WritingAgent Route, harden HTTP request validation and project-owner authorization before choosing real deployment, database, and auth providers.
