@@ -156,12 +156,16 @@ npm run agent:teardown:ai -- --limit 5 --dry-run
 生成规则版原创选题卡：
 
 ```bash
+npm run agent:ideas -- --limit 5
 npm run agent:idea -- --limit 5
 ```
+
+`agent:ideas` 会读取最新扫榜报告、榜单拆书报告、本地文本拆书报告和 feedback 反馈，输出 `reports/latest-ideas.md`。
 
 生成 AI 原创选题 prompt，不调用模型：
 
 ```bash
+npm run agent:ideas:ai -- --limit 5 --dry-run
 npm run agent:idea:ai -- --limit 5 --dry-run
 ```
 
@@ -193,6 +197,7 @@ npm run agent:run -- --goal daily --live-ai
 ```bash
 npm run agent:scan:ai
 npm run agent:teardown:ai -- --limit 5
+npm run agent:ideas:ai -- --limit 5
 npm run agent:idea:ai -- --limit 5
 ```
 
@@ -214,6 +219,9 @@ reports/latest-book-teardown-ai.prompt.md
 reports/latest-text-teardown.md
 reports/latest-text-teardown-ai.md
 reports/latest-text-teardown-ai.prompt.md
+reports/latest-ideas.md
+reports/latest-ideas-ai.md
+reports/latest-ideas-ai.prompt.md
 reports/latest-idea-report.md
 reports/latest-idea-ai.md
 reports/latest-idea-ai.prompt.md
@@ -294,6 +302,7 @@ AI 命令可以先用 dry-run 验证 prompt，不需要 API Key：
 npm run agent:scan:ai -- --dry-run
 npm run agent:teardown:ai -- --dry-run
 npm run agent:teardown:text:ai -- --book-id 7656411449241111576 --dry-run
+npm run agent:ideas:ai -- --dry-run
 ```
 
 ## 下一步

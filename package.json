@@ -30,6 +30,8 @@
     "agent:teardown:text:ai": "tsx src/index.ts agent:teardown:text:ai",
     "agent:idea": "tsx src/index.ts agent:idea",
     "agent:idea:ai": "tsx src/index.ts agent:idea:ai",
+    "agent:ideas": "tsx src/index.ts agent:ideas",
+    "agent:ideas:ai": "tsx src/index.ts agent:ideas:ai",
     "agent:run": "tsx src/index.ts agent:run",
     "feedback:add": "tsx src/index.ts feedback:add",
     "feedback:list": "tsx src/index.ts feedback:list",

@@ -1,5 +1,6 @@
 import type { BatchAnalysis, RankChange } from "../../analysis/rankDiff.js";
 import type { FeedbackRecord } from "../../feedback/feedbackTypes.js";
+import type { SourceReport } from "../../reports/reportContext.js";
 import type { BookOpeningSample } from "../../samples/sampleStore.js";
 import type { RankBatch } from "../../types.js";
 import type { ModelMessage } from "../modelClient.js";
@@ -9,6 +10,7 @@ export function buildIdeaPrompt(options: {
   analysis: BatchAnalysis;
   samples: BookOpeningSample[];
   feedback: FeedbackRecord[];
+  sourceReports?: SourceReport[];
   limit: number;
 }): ModelMessage[] {
   return [
@@ -50,13 +52,16 @@ export function buildIdeaPrompt(options: {
         "# 本地开局样本摘要",
         renderSamples(options.samples.slice(0, 8)),
         "",
+        "# 上游 Markdown 报告摘要",
+        renderSourceReports(options.sourceReports ?? []),
+        "",
         "# 反馈记忆",
         renderFeedback(options.feedback.slice(0, 12)),
         "",
         "# 输出格式",
         "请输出：",
         "1. 本轮选题判断，一句话。",
-        "2. 每张选题卡包含：临时书名、类型方向、读者承诺、开局第一屏、核心冲突、主角优势、前三章节奏、证据来源、避坑提醒。",
+        "2. 每张选题卡必须包含：题材方向、目标读者、核心爽点、开局钩子、主冲突、差异化卖点、可借鉴结构、风险提示、推荐指数。",
         "3. 最后给出你最推荐先开发的一张，并说明为什么。",
         "4. 明确说明这些是原创选题方向，不可照搬榜单作品或本地样本文本。"
       ].join("\n")
@@ -100,6 +105,21 @@ function renderFeedback(feedback: FeedbackRecord[]): string {
     const note = item.note ? `，备注：${item.note}` : "";
     return `${index + 1}. ${item.type} | ${item.target} | ${item.rating}/5${note}`;
   }).join("\n");
+}
+
+function renderSourceReports(reports: SourceReport[]): string {
+  if (reports.length === 0) return "暂无上游 Markdown 报告。";
+
+  return reports.map((report, index) => {
+    if (!report.exists) {
+      return `${index + 1}. ${report.name}: 缺失，路径 ${report.path}`;
+    }
+
+    return [
+      `${index + 1}. ${report.name}: ${report.path}`,
+      trim(report.content, 2200)
+    ].join("\n");
+  }).join("\n\n");
 }
 
 function trim(value: string, limit: number): string {

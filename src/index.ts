@@ -4,7 +4,7 @@ import { makeModelConfig } from "./agents/modelClient.js";
 import { writeAiScanReport } from "./agents/scanAgent.js";
 import { writeAiTeardownReport } from "./agents/teardownAgent.js";
 import { writeAiTextTeardownReport } from "./agents/textTeardownAgent.js";
-import { writeAiIdeaReport } from "./agents/ideaAgent.js";
+import { writeAiIdeaReport, writeAiIdeasReport } from "./agents/ideaAgent.js";
 import { crawlFanqieRank } from "./fanqieRankCrawler.js";
 import { exportBatchToCsv, exportSnapshotToCsv } from "./csv.js";
 import { JsonSnapshotStore } from "./jsonSnapshotStore.js";
@@ -12,7 +12,8 @@ import { getAllRankTargets } from "./rankTargets.js";
 import { summarizeBatch } from "./analysis/rankDiff.js";
 import { writeAgentScanReport } from "./reports/agentScanReport.js";
 import { writeBookTeardownReport } from "./reports/bookTeardownReport.js";
-import { writeIdeaReport } from "./reports/ideaReport.js";
+import { writeIdeaReport, writeIdeasReport } from "./reports/ideaReport.js";
+import { readLatestIdeaSourceReports } from "./reports/reportContext.js";
 import { writeScanReport } from "./reports/scanReport.js";
 import { writeTextTeardownReport } from "./reports/textTeardownReport.js";
 import { FeedbackStore } from "./feedback/feedbackStore.js";
@@ -528,6 +529,79 @@ program
   });
 
 program
+  .command("agent:ideas")
+  .description("读取最新扫榜/拆书/文本拆书报告和反馈，生成原创选题卡")
+  .option("--limit <number>", "生成选题卡数量", "5")
+  .option("--sample-limit <number>", "纳入本地开局样本数量", "8")
+  .option("--feedback-limit <number>", "纳入反馈记忆数量", "20")
+  .action(async (options: {
+    limit: string;
+    sampleLimit: string;
+    feedbackLimit: string;
+  }) => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+
+      if (!batch) {
+        console.log("没有可生成选题卡的榜单批次，请先运行 npm run crawl:all。");
+        return;
+      }
+
+      const reportPath = await generateIdeasReport(
+        batch,
+        db,
+        parsePositiveInteger(options.limit, "--limit"),
+        parsePositiveInteger(options.sampleLimit, "--sample-limit"),
+        parsePositiveInteger(options.feedbackLimit, "--feedback-limit")
+      );
+      console.log(`IdeasAgent 选题卡已生成：${reportPath}`);
+    } finally {
+      db.close();
+    }
+  });
+
+program
+  .command("agent:ideas:ai")
+  .description("读取最新报告和反馈，调用 OpenAI-compatible 模型生成 AI 原创选题卡")
+  .option("--limit <number>", "生成选题卡数量", "5")
+  .option("--sample-limit <number>", "纳入本地开局样本数量", "8")
+  .option("--feedback-limit <number>", "纳入反馈记忆数量", "20")
+  .option("--dry-run", "只生成 prompt 文件，不调用模型")
+  .action(async (options: {
+    limit: string;
+    sampleLimit: string;
+    feedbackLimit: string;
+    dryRun?: boolean;
+  }) => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+
+      if (!batch) {
+        console.log("没有可生成 AI 选题卡的榜单批次，请先运行 npm run crawl:all。");
+        return;
+      }
+
+      const reportPath = await generateAiIdeasReport(
+        batch,
+        db,
+        parsePositiveInteger(options.limit, "--limit"),
+        parsePositiveInteger(options.sampleLimit, "--sample-limit"),
+        parsePositiveInteger(options.feedbackLimit, "--feedback-limit"),
+        Boolean(options.dryRun)
+      );
+      console.log(
+        options.dryRun
+          ? `AI 选题 prompt 已生成：${reportPath}`
+          : `AI 选题卡已生成：${reportPath}`
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+program
   .command("agent:idea")
   .description("基于榜单趋势、本地开局样本和反馈记忆生成原创选题卡")
   .option("--limit <number>", "生成选题卡数量", "5")
@@ -1016,7 +1090,7 @@ async function runIdeaGoal(
         };
       }
 
-      const reportPath = await generateIdeaReport(batch, db, limit, sampleLimit, 20);
+      const reportPath = await generateIdeasReport(batch, db, limit, sampleLimit, 20);
       return {
         detail: `生成 ${limit} 张原创选题卡`,
         outputPath: reportPath
@@ -1040,7 +1114,7 @@ async function runIdeaGoal(
           };
         }
 
-        const reportPath = await generateAiIdeaReport(
+        const reportPath = await generateAiIdeasReport(
           batch,
           db,
           limit,
@@ -1260,6 +1334,55 @@ async function generateAiIdeaReport(
     analysis,
     samples,
     feedback,
+    outputDir: config.reportDir,
+    modelConfig: makeModelConfig(process.env),
+    dryRun,
+    limit
+  });
+}
+
+async function generateIdeasReport(
+  batch: RankBatch,
+  db: SqliteRankStore,
+  limit: number,
+  sampleLimit: number,
+  feedbackLimit: number
+): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  const samples = (await openSamples().list()).slice(0, sampleLimit);
+  const feedback = await openFeedback().list({ limit: feedbackLimit });
+  const sourceReports = await readLatestIdeaSourceReports(config.reportDir);
+
+  return writeIdeasReport({
+    batch,
+    analysis,
+    samples,
+    feedback,
+    sourceReports,
+    outputDir: config.reportDir,
+    limit
+  });
+}
+
+async function generateAiIdeasReport(
+  batch: RankBatch,
+  db: SqliteRankStore,
+  limit: number,
+  sampleLimit: number,
+  feedbackLimit: number,
+  dryRun: boolean
+): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  const samples = (await openSamples().list()).slice(0, sampleLimit);
+  const feedback = await openFeedback().list({ limit: feedbackLimit });
+  const sourceReports = await readLatestIdeaSourceReports(config.reportDir);
+
+  return writeAiIdeasReport({
+    batch,
+    analysis,
+    samples,
+    feedback,
+    sourceReports,
     outputDir: config.reportDir,
     modelConfig: makeModelConfig(process.env),
     dryRun,

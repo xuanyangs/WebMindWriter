@@ -4,17 +4,20 @@ import type { BatchAnalysis, RankChange } from "../analysis/rankDiff.js";
 import type { FeedbackRecord } from "../feedback/feedbackTypes.js";
 import type { BookOpeningSample } from "../samples/sampleStore.js";
 import type { RankBatch } from "../types.js";
+import type { SourceReport } from "./reportContext.js";
 
 type IdeaCard = {
   title: string;
-  genre: string;
-  audiencePromise: string;
+  genreDirection: string;
+  targetReader: string;
+  corePleasure: string;
   openingHook: string;
-  coreConflict: string;
-  advantage: string;
-  firstChapterBeats: string[];
+  mainConflict: string;
+  differentiation: string;
+  transferableStructure: string[];
   evidence: string[];
   risk: string;
+  recommendationScore: number;
 };
 
 export async function writeIdeaReport(options: {
@@ -37,15 +40,38 @@ export async function writeIdeaReport(options: {
   return latestPath;
 }
 
+export async function writeIdeasReport(options: {
+  batch: RankBatch;
+  analysis: BatchAnalysis;
+  samples: BookOpeningSample[];
+  feedback: FeedbackRecord[];
+  sourceReports: SourceReport[];
+  outputDir: string;
+  limit: number;
+}): Promise<string> {
+  await fs.mkdir(options.outputDir, { recursive: true });
+
+  const content = renderIdeaReport(options);
+  const latestPath = path.join(options.outputDir, "latest-ideas.md");
+  const archivePath = path.join(options.outputDir, `${options.batch.id}-ideas.md`);
+
+  await fs.writeFile(latestPath, content, "utf8");
+  await fs.writeFile(archivePath, content, "utf8");
+
+  return latestPath;
+}
+
 export function renderIdeaReport(options: {
   batch: RankBatch;
   analysis: BatchAnalysis;
   samples: BookOpeningSample[];
   feedback: FeedbackRecord[];
+  sourceReports?: SourceReport[];
   limit: number;
 }): string {
   const ideas = buildIdeaCards(options);
   const feedbackHint = summarizeFeedback(options.feedback);
+  const sourceReports = options.sourceReports ?? [];
 
   return [
     "# IdeaAgent 选题卡",
@@ -55,6 +81,7 @@ export function renderIdeaReport(options: {
     `- 榜单样本：${options.analysis.snapshotCount} 个榜单，${options.analysis.itemCount} 条作品记录`,
     `- 本地开局样本：${options.samples.length} 份`,
     `- 反馈记忆：${options.feedback.length} 条`,
+    `- 上游报告：${sourceReports.filter((report) => report.exists).length}/${sourceReports.length || 0} 份`,
     "",
     "## 本轮判断",
     "",
@@ -63,6 +90,10 @@ export function renderIdeaReport(options: {
     "## 反馈偏好",
     "",
     feedbackHint,
+    "",
+    "## 上游报告记忆",
+    "",
+    renderSourceReports(sourceReports),
     "",
     "## 选题卡",
     "",
@@ -83,11 +114,13 @@ function buildIdeaCards(options: {
   analysis: BatchAnalysis;
   samples: BookOpeningSample[];
   feedback: FeedbackRecord[];
+  sourceReports?: SourceReport[];
   limit: number;
 }): IdeaCard[] {
   const hotCategories = pickHotCategories(options.analysis);
   const hotTags = options.analysis.tagCounts.slice(0, 8).map((item) => item.name);
   const sampleSignals = extractSampleSignals(options.samples);
+  const reportSignals = extractReportSignals(options.sourceReports ?? []);
   const feedbackSignals = options.feedback
     .filter((item) => item.rating >= 4)
     .map((item) => item.note)
@@ -96,19 +129,22 @@ function buildIdeaCards(options: {
   return hotCategories.slice(0, Math.max(1, options.limit)).map((category, index) => {
     const tag = hotTags[index % Math.max(1, hotTags.length)] ?? "强反差";
     const sampleSignal = sampleSignals[index % Math.max(1, sampleSignals.length)] ?? "开局快速给身份、困境和收益";
+    const reportSignal = pickReportSignal(category.name, reportSignals);
     const feedbackSignal = feedbackSignals[index % Math.max(1, feedbackSignals.length)] ?? "优先保留清晰钩子和冲突信号";
     const seed = pickSeedChange(options.analysis, category.name, index);
 
     return {
       title: makeIdeaTitle(category.name, tag, index),
-      genre: category.name,
-      audiencePromise: `给喜欢${category.name}的读者一个更快兑现的${tag}承诺：主角一开局就被推到难题前，但手里有一个可持续放大的优势。`,
+      genreDirection: category.name,
+      targetReader: makeTargetReader(category.name, tag),
+      corePleasure: makeCorePleasure(category.name, tag),
       openingHook: `${sampleSignal}。第一屏要让读者立刻知道主角是谁、被谁误判、马上能赢回什么。`,
-      coreConflict: makeConflict(category.name, seed),
-      advantage: makeAdvantage(category.name, tag),
-      firstChapterBeats: makeFirstChapterBeats(category.name),
-      evidence: makeEvidence(category, seed, feedbackSignal),
-      risk: `不要照搬榜单书名、人物和设定；只迁移“读者期待、冲突结构、爽点兑现节奏”。${category.movementCount < 2 ? "当前变化样本偏少，需要下一轮榜单复核。" : ""}`
+      mainConflict: makeConflict(category.name, seed),
+      differentiation: makeDifferentiation(category.name, tag, reportSignal),
+      transferableStructure: makeTransferableStructure(category.name),
+      evidence: makeEvidence(category, seed, feedbackSignal, reportSignal),
+      risk: `不要照搬榜单书名、人物和设定；只迁移“读者期待、冲突结构、爽点兑现节奏”。${category.movementCount < 2 ? "当前变化样本偏少，需要下一轮榜单复核。" : ""}`,
+      recommendationScore: recommendationScore(category, index)
     };
   });
 }
@@ -201,6 +237,77 @@ function summarizeFeedback(feedback: FeedbackRecord[]): string {
   return lines.join("\n");
 }
 
+function renderSourceReports(reports: SourceReport[]): string {
+  if (reports.length === 0) {
+    return "未配置上游报告读取，本轮只使用数据库、样本和反馈。";
+  }
+
+  return reports.map((report, index) => {
+    if (!report.exists) {
+      return `${index + 1}. ${report.name}：缺失（${report.path}）`;
+    }
+
+    return `${index + 1}. ${report.name}：已读取 ${report.content.length} 字（${report.path}）`;
+  }).join("\n");
+}
+
+function extractReportSignals(reports: SourceReport[]): string[] {
+  const text = reports
+    .filter((report) => report.exists)
+    .map((report) => report.content)
+    .join("\n");
+  const signals: string[] = [];
+
+  if (/历史古代|朝堂|文臣|武斗/.test(text)) {
+    signals.push("上游报告提示历史古代有密集变化，适合做公开压力场和权力翻盘");
+  }
+
+  if (/都市种田|投资|重生2009|财富/.test(text)) {
+    signals.push("上游报告提示都市种田可迁移信息差、决策和收益兑现链路");
+  }
+
+  if (/游戏体育|求生|浮岛|资源短缺/.test(text)) {
+    signals.push("上游报告提示求生/游戏方向适合资源短缺、规则发现和稳定产出");
+  }
+
+  if (/动漫衍生|衍生|无敌/.test(text)) {
+    signals.push("上游报告提示衍生方向的核心是熟悉期待上的反常选择");
+  }
+
+  if (/开局钩子|冲突信号|第一钩/.test(text)) {
+    signals.push("上游报告和反馈共同强调：第一屏必须同时给钩子和冲突");
+  }
+
+  return [...new Set(signals)];
+}
+
+function pickReportSignal(category: string, signals: string[]): string {
+  const matched = signals.find((signal) => signal.includes(category));
+  if (matched) return matched;
+
+  if (/历史|军事|抗战|谍战/.test(category)) {
+    return signals.find((signal) => /历史|权力|公开压力/.test(signal)) ?? defaultReportSignal();
+  }
+
+  if (/都市|种田/.test(category)) {
+    return signals.find((signal) => /都市|信息差|收益/.test(signal)) ?? defaultReportSignal();
+  }
+
+  if (/游戏|求生|末世|科幻/.test(category)) {
+    return signals.find((signal) => /求生|游戏|资源/.test(signal)) ?? defaultReportSignal();
+  }
+
+  if (/衍生|动漫/.test(category)) {
+    return signals.find((signal) => /衍生|反常选择/.test(signal)) ?? defaultReportSignal();
+  }
+
+  return signals[0] ?? defaultReportSignal();
+}
+
+function defaultReportSignal(): string {
+  return "上游报告强调：优先迁移承诺方式、冲突结构和兑现节奏";
+}
+
 function buildOneLine(
   analysis: BatchAnalysis,
   samples: BookOpeningSample[],
@@ -217,22 +324,60 @@ function renderIdeaCard(idea: IdeaCard, index: number): string[] {
   return [
     `### ${index}. ${idea.title}`,
     "",
-    `- 类型方向：${idea.genre}`,
-    `- 读者承诺：${idea.audiencePromise}`,
+    `- 题材方向：${idea.genreDirection}`,
+    `- 目标读者：${idea.targetReader}`,
+    `- 核心爽点：${idea.corePleasure}`,
     `- 开局钩子：${idea.openingHook}`,
-    `- 核心冲突：${idea.coreConflict}`,
-    `- 主角优势：${idea.advantage}`,
+    `- 主冲突：${idea.mainConflict}`,
+    `- 差异化卖点：${idea.differentiation}`,
     `- 风险提醒：${idea.risk}`,
+    `- 推荐指数：${idea.recommendationScore}/5`,
     "",
-    "第一章节奏：",
+    "可借鉴结构：",
     "",
-    ...idea.firstChapterBeats.map((beat, beatIndex) => `${beatIndex + 1}. ${beat}`),
+    ...idea.transferableStructure.map((beat, beatIndex) => `${beatIndex + 1}. ${beat}`),
     "",
     "证据来源：",
     "",
     ...idea.evidence.map((item, evidenceIndex) => `${evidenceIndex + 1}. ${item}`),
     ""
   ];
+}
+
+function makeTargetReader(category: string, tag: string): string {
+  if (/女频|现言|古言|幻想言情/.test(category)) {
+    return `喜欢${category}里关系拉扯、身份反差和快速情绪兑现的女性读者，同时吃${tag}标签。`;
+  }
+
+  if (/历史|军事|抗战|谍战/.test(category)) {
+    return `喜欢局势博弈、身份压迫和小人物翻盘的男频读者，需要第一章就看到判断力收益。`;
+  }
+
+  if (/都市/.test(category)) {
+    return `喜欢现实压力、财富/能力跃迁和公开打脸的都市读者，希望爽点能被验证。`;
+  }
+
+  if (/游戏|求生|末世|科幻/.test(category)) {
+    return `喜欢规则探索、资源积累和生存升级的读者，期待主角优势能持续扩大。`;
+  }
+
+  return `喜欢${category}明确类型承诺的读者，重点要钩子快、冲突清楚、收益可持续。`;
+}
+
+function makeCorePleasure(category: string, tag: string): string {
+  if (/都市|种田/.test(category)) {
+    return `${tag}带来的信息差被当场验证，主角从被看低到拿到第一笔确定收益。`;
+  }
+
+  if (/历史|军事|抗战|谍战/.test(category)) {
+    return `主角用现代认知或关键情报压过旧秩序，让质疑者在公开场合改变态度。`;
+  }
+
+  if (/游戏|求生|末世|科幻/.test(category)) {
+    return `别人还在摸规则，主角先发现稳定产出路径，把危机变成资源增长。`;
+  }
+
+  return `${tag}承诺快速兑现，主角优势不是口号，而是在第一章改变局面。`;
 }
 
 function makeIdeaTitle(category: string, tag: string, index: number): string {
@@ -268,7 +413,11 @@ function makeAdvantage(category: string, tag: string): string {
   return `稳定优势 + 公开压力：优势必须能连续使用，且每次使用都会带来新麻烦。标签侧重 ${tag}。`;
 }
 
-function makeFirstChapterBeats(category: string): string[] {
+function makeDifferentiation(category: string, tag: string, reportSignal: string): string {
+  return `不把${category}+${tag}停留在设定层，而是设计一个第一章可验证的小胜场景。${reportSignal}`;
+}
+
+function makeTransferableStructure(category: string): string[] {
   return [
     `前 300 字：给出${category}读者能秒懂的身份和压力场。`,
     "前 800 字：让主角遭遇一次公开误判，制造读者替主角不服的情绪。",
@@ -280,11 +429,13 @@ function makeFirstChapterBeats(category: string): string[] {
 function makeEvidence(
   category: { name: string; totalCount: number; movementCount: number },
   seed: RankChange | undefined,
-  feedbackSignal: string
+  feedbackSignal: string,
+  reportSignal: string
 ): string[] {
   const lines = [
     `${category.name} 在当前榜单中有 ${category.totalCount} 条记录，变化样本 ${category.movementCount} 条。`,
-    `反馈偏好：${feedbackSignal}`
+    `反馈偏好：${feedbackSignal}`,
+    `报告信号：${reportSignal}`
   ];
 
   if (seed) {
@@ -295,4 +446,16 @@ function makeEvidence(
   }
 
   return lines;
+}
+
+function recommendationScore(
+  category: { totalCount: number; movementCount: number },
+  index: number
+): number {
+  const movementScore = Math.min(2, category.movementCount / 2);
+  const volumeScore = Math.min(1.5, category.totalCount / 40);
+  const freshnessPenalty = index * 0.15;
+  const score = 2 + movementScore + volumeScore - freshnessPenalty;
+
+  return Math.max(3, Math.min(5, Math.round(score * 10) / 10));
 }
