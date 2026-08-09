@@ -45,6 +45,7 @@ import {
   runCloudReadinessService,
   writeCloudServiceRegistry
 } from "./services/cloudService.js";
+import { writeCloudHttpSmokeReport } from "./server/cloudHttpAdapter.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
 import { buildDashboard } from "./ui/dashboardBuilder.js";
 import { writeChapterDraft } from "./writing/chapterWriter.js";
@@ -66,7 +67,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "cloud-quota",
   "cloud-admin",
   "cloud-auth",
-  "cloud-services"
+  "cloud-services",
+  "cloud-http"
 ];
 
 program
@@ -885,6 +887,15 @@ program
   });
 
 program
+  .command("agent:cloud:http:check")
+  .description("运行本地 Cloud HTTP adapter smoke check")
+  .action(async () => {
+    const result = await generateCloudHttpSmokeReport();
+    console.log(`Cloud HTTP smoke JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud HTTP smoke 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1115,6 +1126,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "cloud-services") {
     await runCloudServiceRegistryGoal(steps);
+  }
+
+  if (options.goal === "cloud-http") {
+    await runCloudHttpSmokeGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1539,6 +1554,7 @@ async function runCloudGoal(
   await runCloudQuotaGoal(steps, options);
   await runCloudAdminGoal(steps);
   await runCloudServiceRegistryGoal(steps);
+  await runCloudHttpSmokeGoal(steps);
 }
 
 async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
@@ -1595,6 +1611,17 @@ async function runCloudServiceRegistryGoal(steps: AgentRunStep[]): Promise<void>
     const result = await generateCloudServiceRegistry();
     return {
       detail: `生成 ${result.services.length} 个 service callable 映射`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runCloudHttpSmokeGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化 HTTP Adapter Smoke", async () => {
+    const result = await generateCloudHttpSmokeReport();
+    const passed = result.smoke.checks.filter((check) => check.ok).length;
+    return {
+      detail: `${passed}/${result.smoke.checks.length} 个 HTTP adapter 检查通过`,
       outputPath: result.reportPath
     };
   });
@@ -2012,6 +2039,12 @@ async function generateCloudServiceRegistry(): Promise<
   return writeCloudServiceRegistry(makeCloudServicePaths());
 }
 
+async function generateCloudHttpSmokeReport(): Promise<
+  Awaited<ReturnType<typeof writeCloudHttpSmokeReport>>
+> {
+  return writeCloudHttpSmokeReport(makeCloudServicePaths());
+}
+
 function makeCloudServicePaths() {
   return {
     cloudDir: config.cloudDir,
@@ -2283,10 +2316,11 @@ function buildAgentRunNextActions(
     goal === "cloud-quota" ||
     goal === "cloud-admin" ||
     goal === "cloud-auth" ||
-    goal === "cloud-services"
+    goal === "cloud-services" ||
+    goal === "cloud-http"
   ) {
     actions.push(
-      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin 和 latest-cloud-services，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP adapter 方案"
+      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin、latest-cloud-services 和 latest-cloud-http，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP adapter 方案"
     );
   }
 
@@ -2294,7 +2328,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览和 Cloud service 层");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层和本地 HTTP adapter");
   return actions;
 }
 
