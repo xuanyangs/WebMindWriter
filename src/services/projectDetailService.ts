@@ -52,6 +52,14 @@ export type ProjectChapterRevisionResult = {
   revisions: ProjectChapterRevision[];
 };
 
+export type ProjectChapterRevisionReadResult = {
+  project: NovelProject;
+  chapterNumber: number;
+  revision: ProjectChapterRevision & {
+    content: string;
+  };
+};
+
 export async function runProjectDetailService(
   paths: ProjectDetailServicePaths,
   options: { projectId: string }
@@ -209,6 +217,46 @@ export async function runProjectChapterRevisionService(
         chapterNumber: options.chapterNumber,
         revisions: []
       };
+    }
+
+    throw error;
+  }
+}
+
+export async function runProjectChapterRevisionReadService(
+  paths: ProjectDetailServicePaths,
+  options: { projectId: string; chapterNumber: number; revisionFile: string }
+): Promise<ProjectChapterRevisionReadResult> {
+  const project = await readNovelProject(paths.projectDir, options.projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${options.projectId}`);
+  }
+
+  const revisionPath = path.join(project.paths.chaptersDir, ".revisions", options.revisionFile);
+
+  try {
+    const [stat, content] = await Promise.all([
+      fs.stat(revisionPath),
+      fs.readFile(revisionPath, "utf8")
+    ]);
+
+    return {
+      project,
+      chapterNumber: options.chapterNumber,
+      revision: {
+        fileName: options.revisionFile,
+        path: revisionPath,
+        sizeBytes: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+        excerpt: trimPreview(content, 500),
+        content
+      }
+    };
+  } catch (error) {
+    if (isMissingFile(error)) {
+      throw new Error(
+        `Revision not found: ${options.projectId}#${options.chapterNumber}/${options.revisionFile}`
+      );
     }
 
     throw error;

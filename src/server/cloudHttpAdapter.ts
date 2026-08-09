@@ -10,6 +10,7 @@ import {
 import { runIdeasService } from "../services/ideaService.js";
 import {
   runProjectChapterReadService,
+  runProjectChapterRevisionReadService,
   runProjectChapterRevisionService,
   runProjectChapterSaveService,
   runProjectDetailService
@@ -73,6 +74,8 @@ export type CloudHttpProjectChapterSmokeResult = CloudHttpSmokeResult;
 export type CloudHttpProjectChapterSaveSmokeResult = CloudHttpSmokeResult;
 
 export type CloudHttpProjectChapterRevisionSmokeResult = CloudHttpSmokeResult;
+
+export type CloudHttpProjectChapterRevisionReadSmokeResult = CloudHttpSmokeResult;
 
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
@@ -306,6 +309,64 @@ async function handleCloudHttpRequestUnchecked(
       };
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  const chapterRevisionReadRoute = matchProjectChapterRevisionReadRoute(request.path);
+  if (request.method === "GET" && chapterRevisionReadRoute) {
+    const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
+    if (denied) return denied;
+
+    const ownershipDenied = authorizeProjectOwnership(
+      request,
+      chapterRevisionReadRoute.projectId
+    );
+    if (ownershipDenied) return ownershipDenied;
+
+    try {
+      const result = await runProjectChapterRevisionReadService(
+        {
+          projectDir: paths.projectDir
+        },
+        {
+          projectId: chapterRevisionReadRoute.projectId,
+          chapterNumber: chapterRevisionReadRoute.chapterNumber,
+          revisionFile: chapterRevisionReadRoute.revisionFile
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          projectId: result.project.id,
+          title: result.project.title,
+          chapterNumber: result.chapterNumber,
+          revision: result.revision
+        }
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      if (error instanceof Error && error.message.startsWith("Revision not found:")) {
         return {
           status: 404,
           body: {
@@ -631,6 +692,27 @@ function matchProjectRoute(pathname: string): { projectId: string } | undefined 
   };
 }
 
+function matchProjectChapterRevisionReadRoute(
+  pathname: string
+): { projectId: string; chapterNumber: number; revisionFile: string } | undefined {
+  const match = pathname.match(
+    /^\/api\/projects\/([^/]+)\/chapters\/([^/]+)\/revisions\/([^/]+)$/
+  );
+  if (!match) return undefined;
+
+  const chapterNumber = readPositiveNumber(
+    decodeURIComponent(match[2]),
+    1,
+    "chapterNumber"
+  );
+
+  return {
+    projectId: decodeURIComponent(match[1]),
+    chapterNumber,
+    revisionFile: readRevisionFileName(decodeURIComponent(match[3]), chapterNumber)
+  };
+}
+
 function matchProjectChapterRevisionRoute(
   pathname: string
 ): { projectId: string; chapterNumber: number } | undefined {
@@ -670,6 +752,23 @@ function matchProjectChaptersRoute(pathname: string): { projectId: string } | un
   return {
     projectId: decodeURIComponent(match[1])
   };
+}
+
+function readRevisionFileName(value: string, chapterNumber: number): string {
+  const prefix = `chapter-${String(chapterNumber).padStart(3, "0")}-`;
+  if (
+    value.startsWith(prefix) &&
+    value.endsWith(".md") &&
+    path.basename(value) === value &&
+    /^[a-zA-Z0-9.-]+\.md$/.test(value)
+  ) {
+    return value;
+  }
+
+  throw new CloudHttpValidationError(
+    "revisionFile",
+    "revisionFile must be a chapter revision markdown filename."
+  );
 }
 
 function isMissingFile(error: unknown): boolean {
@@ -1823,6 +1922,273 @@ export async function writeCloudHttpProjectChapterRevisionSmokeReport(
   return { jsonPath, reportPath, smoke };
 }
 
+export async function writeCloudHttpProjectChapterRevisionReadSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpProjectChapterRevisionReadSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const slug = "smoke-project-chapter-revision-read";
+  const prepareProject = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: "/api/projects",
+      query: {
+        slug,
+        title: "Smoke Project Chapter Revision Read"
+      },
+      session: authorSession()
+    },
+    paths
+  );
+  const projectId = typeof prepareProject.body.projectId === "string"
+    ? prepareProject.body.projectId
+    : slug;
+  const ownerSession = projectOwnerSession(projectId);
+  const chapterBasePath = `/api/projects/${encodeURIComponent(projectId)}/chapters/1`;
+  const prepareChapter = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: `/api/projects/${encodeURIComponent(projectId)}/chapters`,
+      query: {
+        chapter: "1",
+        force: "true"
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const marker = `revision-read-smoke-${Date.now()}`;
+  const firstSave = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: chapterBasePath,
+      body: {
+        content: `# Revision Read Smoke First Save\n\n${marker}-first\n`
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const secondSave = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: chapterBasePath,
+      body: {
+        content: `# Revision Read Smoke Second Save\n\n${marker}-second\n`
+      },
+      session: ownerSession
+    },
+    paths
+  );
+  const listRevisions = await handleCloudHttpRequest(
+    {
+      method: "GET",
+      path: `${chapterBasePath}/revisions`,
+      session: ownerSession
+    },
+    paths
+  );
+  const revisions = Array.isArray(listRevisions.body.revisions)
+    ? listRevisions.body.revisions
+    : [];
+  const revisionFile = typeof (revisions[0] as { fileName?: unknown } | undefined)?.fileName === "string"
+    ? (revisions[0] as { fileName: string }).fileName
+    : "chapter-001-missing.md";
+  const revisionPath = `${chapterBasePath}/revisions/${encodeURIComponent(revisionFile)}`;
+
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+    validate?: (response: CloudHttpResponse) => string | undefined;
+  }[] = [
+    {
+      name: "prepare-project",
+      request: {
+        method: "POST",
+        path: "/api/projects",
+        query: {
+          slug,
+          title: "Smoke Project Chapter Revision Read"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "prepare-chapter",
+      request: {
+        method: "POST",
+        path: `/api/projects/${encodeURIComponent(projectId)}/chapters`,
+        query: {
+          chapter: "1",
+          force: "true"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "prepare-first-save",
+      request: {
+        method: "POST",
+        path: chapterBasePath,
+        body: {
+          content: "# Revision Read Smoke First Save\n"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "prepare-second-save",
+      request: {
+        method: "POST",
+        path: chapterBasePath,
+        body: {
+          content: "# Revision Read Smoke Second Save\n"
+        },
+        session: ownerSession
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "list-revisions",
+      request: {
+        method: "GET",
+        path: `${chapterBasePath}/revisions`,
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      validate: (response) => {
+        const revisionCount = response.body.revisionCount;
+        return typeof revisionCount === "number" && revisionCount >= 2
+          ? undefined
+          : "expected at least two revisions";
+      }
+    },
+    {
+      name: "project-owner-revision-read-allowed",
+      request: {
+        method: "GET",
+        path: revisionPath,
+        session: ownerSession
+      },
+      expectedStatus: 200,
+      validate: (response) => {
+        const revision = response.body.revision as { content?: unknown } | undefined;
+        return typeof revision?.content === "string" && revision.content.includes(marker)
+          ? undefined
+          : "expected revision content marker";
+      }
+    },
+    {
+      name: "author-revision-read-denied",
+      request: {
+        method: "GET",
+        path: revisionPath,
+        session: authorSession()
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "project-owner-unowned-revision-read-denied",
+      request: {
+        method: "GET",
+        path: revisionPath,
+        session: projectOwnerSession("another-project")
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "invalid-revision-file-bad-request",
+      request: {
+        method: "GET",
+        path: `${chapterBasePath}/revisions/%2E%2E%2Fchapter-001-bad.md`,
+        session: ownerSession
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "missing-revision-not-found",
+      request: {
+        method: "GET",
+        path: `${chapterBasePath}/revisions/chapter-001-not-found.md`,
+        session: ownerSession
+      },
+      expectedStatus: 404
+    },
+    {
+      name: "unknown-project-not-found",
+      request: {
+        method: "GET",
+        path: "/api/projects/not-a-real-project/chapters/1/revisions/chapter-001-not-found.md",
+        session: adminSession()
+      },
+      expectedStatus: 404
+    },
+    {
+      name: "admin-revision-read-allowed",
+      request: {
+        method: "GET",
+        path: revisionPath,
+        session: adminSession()
+      },
+      expectedStatus: 200
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = item.name === "prepare-project"
+      ? prepareProject
+      : item.name === "prepare-chapter"
+        ? prepareChapter
+        : item.name === "prepare-first-save"
+          ? firstSave
+          : item.name === "prepare-second-save"
+            ? secondSave
+            : item.name === "list-revisions"
+              ? listRevisions
+              : await handleCloudHttpRequest(item.request, paths);
+    const validationDetail = item.validate?.(response);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus && !validationDetail,
+      detail:
+        response.status !== item.expectedStatus
+          ? `expected ${item.expectedStatus}, received ${response.status}`
+          : validationDetail ?? "matched expected status"
+    });
+  }
+
+  const smoke: CloudHttpProjectChapterRevisionReadSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-project-chapter-revision-read-smoke.json");
+  const reportPath = path.join(
+    paths.reportDir,
+    "latest-cloud-http-project-chapter-revision-read.md"
+  );
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    reportPath,
+    renderHttpProjectChapterRevisionReadSmokeReport(smoke, jsonPath),
+    "utf8"
+  );
+
+  return { jsonPath, reportPath, smoke };
+}
+
 export async function writeCloudHttpWritingSmokeReport(
   paths: CloudServicePaths
 ): Promise<{
@@ -2575,6 +2941,34 @@ function renderHttpProjectChapterRevisionSmokeReport(
     "1. 增加指定 revision 内容读取 route，便于 Web 工作台对比旧稿",
     "2. 把 revisions 列表接入章节编辑器侧栏",
     "3. 为保存 route 增加 revision metadata JSON",
+    ""
+  ].join("\n");
+}
+
+function renderHttpProjectChapterRevisionReadSmokeReport(
+  smoke: CloudHttpProjectChapterRevisionReadSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Project Chapter Revision Read Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 把 revision read 接入章节编辑器的版本对比面板",
+    "2. 增加从 revision 恢复章节正文的 route",
+    "3. 为 revision 文件补充结构化 metadata，记录作者、note 和保存来源",
     ""
   ].join("\n");
 }

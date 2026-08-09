@@ -56,6 +56,7 @@
     "agent:cloud:http:project-chapter:check": "tsx src/index.ts agent:cloud:http:project-chapter:check",
     "agent:cloud:http:project-chapter-save:check": "tsx src/index.ts agent:cloud:http:project-chapter-save:check",
     "agent:cloud:http:project-chapter-revisions:check": "tsx src/index.ts agent:cloud:http:project-chapter-revisions:check",
+    "agent:cloud:http:project-chapter-revision-read:check": "tsx src/index.ts agent:cloud:http:project-chapter-revision-read:check",
     "agent:run": "tsx src/index.ts agent:run",
     "feedback:add": "tsx src/index.ts feedback:add",
     "feedback:list": "tsx src/index.ts feedback:list",
