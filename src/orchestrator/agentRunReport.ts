@@ -8,7 +8,8 @@ export type AgentRunGoal =
   | "text-teardown"
   | "feedback-review"
   | "idea"
-  | "recipe";
+  | "recipe"
+  | "project";
 
 export type AgentRunStepStatus = "done" | "skipped" | "failed";
 

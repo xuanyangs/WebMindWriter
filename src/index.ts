@@ -28,6 +28,7 @@ import {
   type AgentRunStep,
   type AgentRunStepStatus
 } from "./orchestrator/agentRunReport.js";
+import { createNovelProject, writeProjectReport } from "./projects/novelProjectStore.js";
 import { SampleStore } from "./samples/sampleStore.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
@@ -40,7 +41,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "text-teardown",
   "feedback-review",
   "idea",
-  "recipe"
+  "recipe",
+  "project"
 ];
 
 program
@@ -725,6 +727,28 @@ program
   });
 
 program
+  .command("agent:project:create")
+  .description("从 latest-recipe.md 创建本地小说项目")
+  .option("--slug <slug>", "项目目录名；默认根据配方标题生成")
+  .option("--title <title>", "覆盖项目标题")
+  .option("--force", "覆盖已有项目基础文件")
+  .action(async (options: {
+    slug?: string;
+    title?: string;
+    force?: boolean;
+  }) => {
+    const result = await generateProjectFromRecipe({
+      slug: options.slug,
+      title: options.title,
+      force: Boolean(options.force),
+      reuseExisting: true
+    });
+
+    console.log(`小说项目已准备：${result.project.paths.root}`);
+    console.log(`项目报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -891,6 +915,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runFeedbackReviewGoal(steps);
     await runIdeaGoal(steps, options.teardownLimit, options.sampleLimit, options.liveAi);
     await runRecipeGoal(steps, options.liveAi);
+    await runProjectGoal(steps);
   }
 
   if (options.goal === "scan") {
@@ -915,6 +940,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "recipe") {
     await runRecipeGoal(steps, options.liveAi);
+  }
+
+  if (options.goal === "project") {
+    await runProjectGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1234,6 +1263,26 @@ async function runRecipeGoal(
   );
 }
 
+async function runProjectGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "本地小说项目", async () => {
+    if (!(await fileExists(latestRecipePath()))) {
+      return {
+        status: "skipped",
+        detail: "没有 latest-recipe.md，请先运行 agent:recipe"
+      };
+    }
+
+    const result = await generateProjectFromRecipe({
+      reuseExisting: true
+    });
+
+    return {
+      detail: `准备本地小说项目：${result.project.id}`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
 async function crawlOnce(options: CliOptions): Promise<void> {
   const jsonStore = new JsonSnapshotStore(config.dataDir);
   const limit = Number(options.limit);
@@ -1536,6 +1585,31 @@ async function generateAiRecipeReport(options: {
   });
 }
 
+async function generateProjectFromRecipe(options: {
+  slug?: string;
+  title?: string;
+  force?: boolean;
+  reuseExisting?: boolean;
+}): Promise<{
+  project: Awaited<ReturnType<typeof createNovelProject>>;
+  reportPath: string;
+}> {
+  const recipePath = latestRecipePath();
+  const recipeMarkdown = await fs.readFile(recipePath, "utf8");
+  const project = await createNovelProject({
+    projectDir: config.projectDir,
+    recipePath,
+    recipeMarkdown,
+    slug: options.slug,
+    title: options.title,
+    force: options.force,
+    reuseExisting: options.reuseExisting
+  });
+  const reportPath = await writeProjectReport(project, config.reportDir);
+
+  return { project, reportPath };
+}
+
 function buildBatchAnalysis(
   batch: RankBatch,
   db: SqliteRankStore
@@ -1596,6 +1670,10 @@ function openFeedback(): FeedbackStore {
 
 function latestIdeasPath(): string {
   return path.join(config.reportDir, "latest-ideas.md");
+}
+
+function latestRecipePath(): string {
+  return path.join(config.reportDir, "latest-recipe.md");
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -1759,11 +1837,15 @@ function buildAgentRunNextActions(
     actions.push("审阅 latest-recipe，确认后用 feedback:add --type recipe 记录配方质量");
   }
 
+  if (goal === "daily" || goal === "project") {
+    actions.push("审阅 latest-project 和 projects 目录，确认项目记忆后进入 WritingAgent");
+  }
+
   if (goal === "feedback-review") {
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("下一阶段可以新增 Novel Project：把高分写作配方固化成本地小说项目");
+  actions.push("下一阶段可以新增 WritingAgent：读取本地项目并生成第一章草稿");
   return actions;
 }
 

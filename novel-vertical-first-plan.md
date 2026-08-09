@@ -15,11 +15,11 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 0: Agent Orchestrator | Done | `npm run agent:run` and `reports/latest-agent-run.md` |
 | Loop 1: IdeaAgent | Done | `npm run agent:ideas` and `reports/latest-ideas.md` |
 | Loop 2: RecipeAgent | Done | `npm run agent:recipe` and `reports/latest-recipe.md` |
-| Loop 3: Novel Project | Next | Local novel project files and metadata |
-| Loop 4: WritingAgent | Pending | Chapter draft generation with memory |
+| Loop 3: Novel Project | Done | `npm run agent:project:create` and `projects/<project-id>/` |
+| Loop 4: WritingAgent | Next | Chapter draft generation with memory |
 | Loop 5: Desktop UI | Pending | Non-command-line author workflow |
 | Loop 6: Cloud Platform | Pending | Login, quotas, deployment, admin |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After RecipeAgent, the next highest-value link is Novel Project.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Novel Project, the next highest-value link is WritingAgent.

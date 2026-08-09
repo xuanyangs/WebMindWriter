@@ -187,6 +187,18 @@ npm run agent:recipe -- --idea-index 2
 npm run agent:recipe:ai -- --dry-run
 ```
 
+从最新写作配方创建本地小说项目：
+
+```bash
+npm run agent:project:create
+```
+
+指定项目目录名：
+
+```bash
+npm run agent:project:create -- --slug my-novel
+```
+
 运行 Agent Orchestrator，一次编排扫榜、榜单拆书、本地文本拆书和反馈汇总：
 
 ```bash
@@ -202,6 +214,7 @@ npm run agent:run -- --goal text-teardown --sample-limit 6
 npm run agent:run -- --goal feedback-review
 npm run agent:run -- --goal idea
 npm run agent:run -- --goal recipe
+npm run agent:run -- --goal project
 ```
 
 默认不会重新抓取，也不会真实调用模型。需要联网抓榜时加 `--crawl`，需要真实调用模型时加 `--live-ai`：
@@ -248,7 +261,9 @@ reports/latest-idea-ai.prompt.md
 reports/latest-recipe.md
 reports/latest-recipe-ai.md
 reports/latest-recipe-ai.prompt.md
+reports/latest-project.md
 reports/latest-agent-run.md
+projects/<project-id>/
 samples/book-openings/*.md
 feedback/feedback.jsonl
 ```
@@ -281,6 +296,7 @@ reports/*.md
 samples/book-openings/*.md
 feedback/*.jsonl
 feedback/*.json
+projects/*
 .env
 ```
 

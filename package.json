@@ -34,6 +34,7 @@
     "agent:ideas:ai": "tsx src/index.ts agent:ideas:ai",
     "agent:recipe": "tsx src/index.ts agent:recipe",
     "agent:recipe:ai": "tsx src/index.ts agent:recipe:ai",
+    "agent:project:create": "tsx src/index.ts agent:project:create",
     "agent:run": "tsx src/index.ts agent:run",
     "feedback:add": "tsx src/index.ts feedback:add",
     "feedback:list": "tsx src/index.ts feedback:list",

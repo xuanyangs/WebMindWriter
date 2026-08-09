@@ -6,6 +6,8 @@ samples/book-openings/*.md
 !samples/book-openings/.gitkeep
 feedback/*.jsonl
 feedback/*.json
+projects/*
+!projects/.gitkeep
 data/*.sqlite
 data/*.sqlite-*
 data/*.json
