@@ -86,6 +86,12 @@ npm run report
 npm run agent:scan
 ```
 
+生成拆书 Agent 报告：
+
+```bash
+npm run agent:teardown -- --limit 5
+```
+
 ## 输出位置
 
 ```text
@@ -96,6 +102,7 @@ data/rank-snapshots.json
 data/fanqie-loop.sqlite
 reports/latest-scan-report.md
 reports/latest-agent-scan.md
+reports/latest-book-teardown.md
 ```
 
 ## 需要提交和不需要提交
@@ -164,6 +171,6 @@ npm test
 ## 下一步
 
 1. 连续采集至少两轮，验证排名变化分析。
-2. 增加“爆款样本拆解”命令，把上升最快和新上榜作品交给拆书 Agent。
-3. 接入模型 API，把 `agent:scan` 从规则报告升级为真正的 Agent 报告。
+2. 接入模型 API，把 `agent:scan` 和 `agent:teardown` 从规则报告升级为真正的 Agent 报告。
+3. 增加“开局三章人工摘录/上传”能力，让拆书报告能基于样本文本继续深入。
 4. 提供本地查询 API，给桌面端或 Web 端调用。

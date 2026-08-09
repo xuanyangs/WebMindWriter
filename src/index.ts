@@ -6,6 +6,7 @@ import { JsonSnapshotStore } from "./jsonSnapshotStore.js";
 import { getAllRankTargets } from "./rankTargets.js";
 import { summarizeBatch } from "./analysis/rankDiff.js";
 import { writeAgentScanReport } from "./reports/agentScanReport.js";
+import { writeBookTeardownReport } from "./reports/bookTeardownReport.js";
 import { writeScanReport } from "./reports/scanReport.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
 import type { RankBatch, RankSnapshot } from "./types.js";
@@ -275,6 +276,31 @@ program
     }
   });
 
+program
+  .command("agent:teardown")
+  .description("基于最新榜单变化生成拆书 Agent 报告")
+  .option("--limit <number>", "拆解样本数", "5")
+  .action(async (options: { limit: string }) => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+
+      if (!batch) {
+        console.log("没有可生成拆书报告的批次，请先运行 npm run crawl:all。");
+        return;
+      }
+
+      const reportPath = await generateBookTeardownReport(
+        batch,
+        db,
+        Number(options.limit)
+      );
+      console.log(`拆书报告已生成：${reportPath}`);
+    } finally {
+      db.close();
+    }
+  });
+
 type CliOptions = {
   url: string;
   limit: string;
@@ -401,6 +427,15 @@ async function generateAgentReport(
 ): Promise<string> {
   const analysis = buildBatchAnalysis(batch, db);
   return writeAgentScanReport(batch, analysis, config.reportDir);
+}
+
+async function generateBookTeardownReport(
+  batch: RankBatch,
+  db: SqliteRankStore,
+  limit: number
+): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  return writeBookTeardownReport(batch, analysis, config.reportDir, limit);
 }
 
 function buildBatchAnalysis(
