@@ -15,11 +15,24 @@ import { writeScanReport } from "./reports/scanReport.js";
 import { writeTextTeardownReport } from "./reports/textTeardownReport.js";
 import { FeedbackStore } from "./feedback/feedbackStore.js";
 import { feedbackTypes, type FeedbackType } from "./feedback/feedbackTypes.js";
+import {
+  writeAgentRunReport,
+  type AgentRunGoal,
+  type AgentRunStep,
+  type AgentRunStepStatus
+} from "./orchestrator/agentRunReport.js";
 import { SampleStore } from "./samples/sampleStore.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
 
 const program = new Command();
+const agentRunGoals: AgentRunGoal[] = [
+  "daily",
+  "scan",
+  "teardown",
+  "text-teardown",
+  "feedback-review"
+];
 
 program
   .name("fanqie-loop")
@@ -512,6 +525,45 @@ program
   });
 
 program
+  .command("agent:run")
+  .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
+  .option(
+    "--goal <goal>",
+    `编排目标：${agentRunGoals.join(", ")}`,
+    "daily"
+  )
+  .option("--crawl", "先抓取全部内置公开榜单；默认只使用本地已有数据")
+  .option("--crawl-limit <number>", "抓取时每个榜单的条数", "20")
+  .option("--delay-ms <number>", "抓取榜单之间的等待毫秒数", "500")
+  .option("--limit <number>", "榜单拆书目标数量", "5")
+  .option("--sample-limit <number>", "本地样本文本处理数量", "6")
+  .option("--live-ai", "真实调用模型；默认只生成 prompt dry-run 文件")
+  .action(async (options: {
+    goal: string;
+    crawl?: boolean;
+    crawlLimit: string;
+    delayMs: string;
+    limit: string;
+    sampleLimit: string;
+    liveAi?: boolean;
+  }) => {
+    const result = await runAgentOrchestrator({
+      goal: parseAgentRunGoal(options.goal),
+      crawl: Boolean(options.crawl),
+      crawlLimit: parsePositiveInteger(options.crawlLimit, "--crawl-limit"),
+      delayMs: parseNonNegativeInteger(options.delayMs, "--delay-ms"),
+      teardownLimit: parsePositiveInteger(options.limit, "--limit"),
+      sampleLimit: parsePositiveInteger(options.sampleLimit, "--sample-limit"),
+      liveAi: Boolean(options.liveAi)
+    });
+
+    console.log(`Agent Orchestrator 完成：${result.reportPath}`);
+    for (const step of result.steps) {
+      console.log(`[${step.status}] ${step.name} - ${step.detail}`);
+    }
+  });
+
+program
   .command("feedback:add")
   .description("记录一次报告反馈，用来改进后续 prompt 和模板")
   .requiredOption("--target <id>", "反馈对象，例如 bookId、报告名或批次 ID")
@@ -591,6 +643,280 @@ type CliOptions = {
   gender?: string;
   rankMold?: string;
 };
+
+type AgentRunOptions = {
+  goal: AgentRunGoal;
+  crawl: boolean;
+  crawlLimit: number;
+  delayMs: number;
+  teardownLimit: number;
+  sampleLimit: number;
+  liveAi: boolean;
+};
+
+type AgentRunStepOutcome = {
+  status?: AgentRunStepStatus;
+  detail: string;
+  outputPath?: string;
+};
+
+type AgentRunResult = {
+  reportPath: string;
+  steps: AgentRunStep[];
+};
+
+async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunResult> {
+  const startedAt = new Date().toISOString();
+  const steps: AgentRunStep[] = [];
+
+  if (options.goal === "daily") {
+    if (options.crawl) {
+      await recordAgentStep(steps, "抓取公开榜单", async () => {
+        await crawlAll(options.crawlLimit, options.delayMs);
+        return {
+          detail: `抓取全部内置榜单，每榜 ${options.crawlLimit} 条`
+        };
+      });
+    } else {
+      appendAgentStep(steps, {
+        name: "抓取公开榜单",
+        status: "skipped",
+        detail: "未传 --crawl，本轮只使用本地已有数据"
+      });
+    }
+
+    await runScanGoal(steps, options.liveAi);
+    await runTeardownGoal(steps, options.teardownLimit, options.liveAi);
+    await runTextTeardownGoal(steps, options.sampleLimit, options.liveAi);
+    await runFeedbackReviewGoal(steps);
+  }
+
+  if (options.goal === "scan") {
+    await runScanGoal(steps, options.liveAi);
+  }
+
+  if (options.goal === "teardown") {
+    await runTeardownGoal(steps, options.teardownLimit, options.liveAi);
+  }
+
+  if (options.goal === "text-teardown") {
+    await runTextTeardownGoal(steps, options.sampleLimit, options.liveAi);
+  }
+
+  if (options.goal === "feedback-review") {
+    await runFeedbackReviewGoal(steps);
+  }
+
+  const completedAt = new Date().toISOString();
+  const reportPath = await writeAgentRunReport(
+    {
+      goal: options.goal,
+      startedAt,
+      completedAt,
+      options: {
+        crawl: options.crawl,
+        aiMode: options.liveAi ? "live" : "dry-run",
+        teardownLimit: options.teardownLimit,
+        sampleLimit: options.sampleLimit
+      },
+      steps,
+      nextActions: buildAgentRunNextActions(options.goal, steps)
+    },
+    config.reportDir
+  );
+
+  return { reportPath, steps };
+}
+
+async function runScanGoal(
+  steps: AgentRunStep[],
+  liveAi: boolean
+): Promise<void> {
+  await recordAgentStep(steps, "规则扫榜 Agent 报告", async () => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+      if (!batch) {
+        return {
+          status: "skipped",
+          detail: "没有可用榜单批次，请先运行 crawl:all 或 agent:run -- --crawl"
+        };
+      }
+
+      const reportPath = await generateAgentReport(batch, db);
+      return {
+        detail: `基于批次 ${batch.id} 生成作者决策扫榜报告`,
+        outputPath: reportPath
+      };
+    } finally {
+      db.close();
+    }
+  });
+
+  await recordAgentStep(steps, liveAi ? "AI 扫榜报告" : "AI 扫榜 Prompt", async () => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+      if (!batch) {
+        return {
+          status: "skipped",
+          detail: "没有可用榜单批次，跳过 AI 扫榜"
+        };
+      }
+
+      const reportPath = await generateAiScanReport(batch, db, !liveAi);
+      return {
+        detail: liveAi
+          ? `调用模型分析批次 ${batch.id}`
+          : `为批次 ${batch.id} 生成可审核 prompt`,
+        outputPath: reportPath
+      };
+    } finally {
+      db.close();
+    }
+  });
+}
+
+async function runTeardownGoal(
+  steps: AgentRunStep[],
+  limit: number,
+  liveAi: boolean
+): Promise<void> {
+  await recordAgentStep(steps, "规则榜单拆书报告", async () => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+      if (!batch) {
+        return {
+          status: "skipped",
+          detail: "没有可用榜单批次，请先运行 crawl:all 或 agent:run -- --crawl"
+        };
+      }
+
+      const reportPath = await generateBookTeardownReport(batch, db, limit);
+      return {
+        detail: `基于批次 ${batch.id} 生成 ${limit} 个榜单拆书目标`,
+        outputPath: reportPath
+      };
+    } finally {
+      db.close();
+    }
+  });
+
+  await recordAgentStep(
+    steps,
+    liveAi ? "AI 榜单拆书报告" : "AI 榜单拆书 Prompt",
+    async () => {
+      const db = openDb();
+      try {
+        const batch = await loadLatestBatch(db);
+        if (!batch) {
+          return {
+            status: "skipped",
+            detail: "没有可用榜单批次，跳过 AI 榜单拆书"
+          };
+        }
+
+        const reportPath = await generateAiTeardownReport(batch, db, limit, !liveAi);
+        return {
+          detail: liveAi
+            ? `调用模型拆解批次 ${batch.id} 的 ${limit} 个目标`
+            : `为批次 ${batch.id} 的 ${limit} 个目标生成可审核 prompt`,
+          outputPath: reportPath
+        };
+      } finally {
+        db.close();
+      }
+    }
+  );
+}
+
+async function runTextTeardownGoal(
+  steps: AgentRunStep[],
+  sampleLimit: number,
+  liveAi: boolean
+): Promise<void> {
+  await recordAgentStep(steps, "规则本地文本拆书报告", async () => {
+    const selected = (await openSamples().list()).slice(0, sampleLimit);
+    if (selected.length === 0) {
+      return {
+        status: "skipped",
+        detail: "没有本地开局样本，请先运行 sample:add 或 sample:import-dir"
+      };
+    }
+
+    const reportPaths: string[] = [];
+    for (const sample of selected) {
+      const item = await findLatestBookItem(sample.bookId);
+      reportPaths.push(
+        await writeTextTeardownReport({
+          sample,
+          item,
+          outputDir: config.reportDir
+        })
+      );
+    }
+
+    return {
+      detail: `生成 ${selected.length} 份本地文本拆书报告`,
+      outputPath: reportPaths.at(-1)
+    };
+  });
+
+  await recordAgentStep(
+    steps,
+    liveAi ? "AI 本地文本拆书报告" : "AI 本地文本拆书 Prompt",
+    async () => {
+      const [sample] = (await openSamples().list()).slice(0, sampleLimit);
+      if (!sample) {
+        return {
+          status: "skipped",
+          detail: "没有本地开局样本，跳过 AI 文本拆书"
+        };
+      }
+
+      const item = await findLatestBookItem(sample.bookId);
+      const reportPath = await writeAiTextTeardownReport({
+        sample,
+        item,
+        outputDir: config.reportDir,
+        modelConfig: makeModelConfig(process.env),
+        dryRun: !liveAi
+      });
+
+      return {
+        detail: liveAi
+          ? `调用模型拆解样本 ${sample.title ?? sample.bookId}`
+          : `为样本 ${sample.title ?? sample.bookId} 生成可审核 prompt`,
+        outputPath: reportPath
+      };
+    }
+  );
+}
+
+async function runFeedbackReviewGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "反馈记忆汇总", async () => {
+    const store = openFeedback();
+    const summary = await store.summary();
+    const recent = await store.list({ limit: 5 });
+
+    if (summary.length === 0) {
+      return {
+        status: "skipped",
+        detail: "还没有反馈记录；下一轮请用 feedback:add 给报告打分"
+      };
+    }
+
+    return {
+      detail: [
+        `反馈类型 ${summary.length} 类，最近 ${recent.length} 条`,
+        summary
+          .map((row) => `${row.type}: ${row.count} 条，均分 ${row.average}/5`)
+          .join("；")
+      ].join("；")
+    };
+  });
+}
 
 async function crawlOnce(options: CliOptions): Promise<void> {
   const jsonStore = new JsonSnapshotStore(config.dataDir);
@@ -838,6 +1164,119 @@ function sleep(ms: number): Promise<void> {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function parseAgentRunGoal(value: string): AgentRunGoal {
+  if (agentRunGoals.includes(value as AgentRunGoal)) {
+    return value as AgentRunGoal;
+  }
+
+  throw new Error(`--goal must be one of: ${agentRunGoals.join(", ")}`);
+}
+
+function parsePositiveInteger(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+
+  return parsed;
+}
+
+function parseNonNegativeInteger(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer.`);
+  }
+
+  return parsed;
+}
+
+async function recordAgentStep(
+  steps: AgentRunStep[],
+  name: string,
+  run: () => Promise<AgentRunStepOutcome>
+): Promise<void> {
+  const startedAt = new Date().toISOString();
+
+  try {
+    const outcome = await run();
+    steps.push({
+      name,
+      status: outcome.status ?? "done",
+      detail: outcome.detail,
+      outputPath: outcome.outputPath,
+      startedAt,
+      completedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    steps.push({
+      name,
+      status: "failed",
+      detail: formatError(error),
+      startedAt,
+      completedAt: new Date().toISOString()
+    });
+  }
+}
+
+function appendAgentStep(
+  steps: AgentRunStep[],
+  step: {
+    name: string;
+    status: AgentRunStepStatus;
+    detail: string;
+    outputPath?: string;
+  }
+): void {
+  const now = new Date().toISOString();
+  steps.push({
+    ...step,
+    startedAt: now,
+    completedAt: now
+  });
+}
+
+function buildAgentRunNextActions(
+  goal: AgentRunGoal,
+  steps: AgentRunStep[]
+): string[] {
+  const failed = steps.filter((step) => step.status === "failed");
+  if (failed.length > 0) {
+    return [
+      `先处理失败步骤：${failed.map((step) => step.name).join("、")}`,
+      "修复后重新运行相同的 agent:run 目标，确认报告变成完成状态"
+    ];
+  }
+
+  const skipped = steps.filter((step) => step.status === "skipped");
+  const missingInputs = skipped.filter((step) => step.name !== "抓取公开榜单");
+  const actions: string[] = [];
+
+  if (missingInputs.length > 0) {
+    actions.push(
+      `补齐被跳过的输入：${missingInputs.map((step) => step.name).join("、")}`
+    );
+  }
+
+  if (skipped.some((step) => step.name === "抓取公开榜单")) {
+    actions.push("需要当天新榜单数据时，重跑 agent:run -- --goal daily --crawl");
+  }
+
+  if (goal === "daily" || goal === "scan") {
+    actions.push("审阅 latest-agent-scan 和 AI 扫榜 prompt，挑 1-3 个题材方向进入拆书");
+  }
+
+  if (goal === "daily" || goal === "teardown" || goal === "text-teardown") {
+    actions.push("对最有价值的拆书报告记录 feedback:add，形成可被下一轮读取的偏好记忆");
+  }
+
+  if (goal === "feedback-review") {
+    actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
+  }
+
+  actions.push("下一阶段可以新增 IdeaAgent：把扫榜趋势和高分拆书样本合成选题卡");
+  return actions;
 }
 
 program.parseAsync().catch((error) => {

@@ -153,6 +153,28 @@ npm run agent:scan:ai -- --dry-run
 npm run agent:teardown:ai -- --limit 5 --dry-run
 ```
 
+运行 Agent Orchestrator，一次编排扫榜、榜单拆书、本地文本拆书和反馈汇总：
+
+```bash
+npm run agent:run -- --goal daily
+```
+
+只跑某一个目标：
+
+```bash
+npm run agent:run -- --goal scan
+npm run agent:run -- --goal teardown --limit 5
+npm run agent:run -- --goal text-teardown --sample-limit 6
+npm run agent:run -- --goal feedback-review
+```
+
+默认不会重新抓取，也不会真实调用模型。需要联网抓榜时加 `--crawl`，需要真实调用模型时加 `--live-ai`：
+
+```bash
+npm run agent:run -- --goal daily --crawl
+npm run agent:run -- --goal daily --live-ai
+```
+
 配置 `MODEL_API_KEY` 后调用 OpenAI-compatible 模型：
 
 ```bash
@@ -178,6 +200,7 @@ reports/latest-book-teardown-ai.prompt.md
 reports/latest-text-teardown.md
 reports/latest-text-teardown-ai.md
 reports/latest-text-teardown-ai.prompt.md
+reports/latest-agent-run.md
 samples/book-openings/*.md
 feedback/feedback.jsonl
 ```
