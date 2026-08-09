@@ -6,7 +6,8 @@ export type AgentRunGoal =
   | "scan"
   | "teardown"
   | "text-teardown"
-  | "feedback-review";
+  | "feedback-review"
+  | "idea";
 
 export type AgentRunStepStatus = "done" | "skipped" | "failed";
 

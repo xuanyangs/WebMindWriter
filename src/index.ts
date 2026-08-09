@@ -4,6 +4,7 @@ import { makeModelConfig } from "./agents/modelClient.js";
 import { writeAiScanReport } from "./agents/scanAgent.js";
 import { writeAiTeardownReport } from "./agents/teardownAgent.js";
 import { writeAiTextTeardownReport } from "./agents/textTeardownAgent.js";
+import { writeAiIdeaReport } from "./agents/ideaAgent.js";
 import { crawlFanqieRank } from "./fanqieRankCrawler.js";
 import { exportBatchToCsv, exportSnapshotToCsv } from "./csv.js";
 import { JsonSnapshotStore } from "./jsonSnapshotStore.js";
@@ -11,6 +12,7 @@ import { getAllRankTargets } from "./rankTargets.js";
 import { summarizeBatch } from "./analysis/rankDiff.js";
 import { writeAgentScanReport } from "./reports/agentScanReport.js";
 import { writeBookTeardownReport } from "./reports/bookTeardownReport.js";
+import { writeIdeaReport } from "./reports/ideaReport.js";
 import { writeScanReport } from "./reports/scanReport.js";
 import { writeTextTeardownReport } from "./reports/textTeardownReport.js";
 import { FeedbackStore } from "./feedback/feedbackStore.js";
@@ -31,7 +33,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "scan",
   "teardown",
   "text-teardown",
-  "feedback-review"
+  "feedback-review",
+  "idea"
 ];
 
 program
@@ -525,6 +528,79 @@ program
   });
 
 program
+  .command("agent:idea")
+  .description("基于榜单趋势、本地开局样本和反馈记忆生成原创选题卡")
+  .option("--limit <number>", "生成选题卡数量", "5")
+  .option("--sample-limit <number>", "纳入本地开局样本数量", "8")
+  .option("--feedback-limit <number>", "纳入反馈记忆数量", "20")
+  .action(async (options: {
+    limit: string;
+    sampleLimit: string;
+    feedbackLimit: string;
+  }) => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+
+      if (!batch) {
+        console.log("没有可生成选题卡的榜单批次，请先运行 npm run crawl:all。");
+        return;
+      }
+
+      const reportPath = await generateIdeaReport(
+        batch,
+        db,
+        parsePositiveInteger(options.limit, "--limit"),
+        parsePositiveInteger(options.sampleLimit, "--sample-limit"),
+        parsePositiveInteger(options.feedbackLimit, "--feedback-limit")
+      );
+      console.log(`IdeaAgent 选题卡已生成：${reportPath}`);
+    } finally {
+      db.close();
+    }
+  });
+
+program
+  .command("agent:idea:ai")
+  .description("调用 OpenAI-compatible 模型生成 AI 原创选题卡")
+  .option("--limit <number>", "生成选题卡数量", "5")
+  .option("--sample-limit <number>", "纳入本地开局样本数量", "8")
+  .option("--feedback-limit <number>", "纳入反馈记忆数量", "20")
+  .option("--dry-run", "只生成 prompt 文件，不调用模型")
+  .action(async (options: {
+    limit: string;
+    sampleLimit: string;
+    feedbackLimit: string;
+    dryRun?: boolean;
+  }) => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+
+      if (!batch) {
+        console.log("没有可生成 AI 选题卡的榜单批次，请先运行 npm run crawl:all。");
+        return;
+      }
+
+      const reportPath = await generateAiIdeaReport(
+        batch,
+        db,
+        parsePositiveInteger(options.limit, "--limit"),
+        parsePositiveInteger(options.sampleLimit, "--sample-limit"),
+        parsePositiveInteger(options.feedbackLimit, "--feedback-limit"),
+        Boolean(options.dryRun)
+      );
+      console.log(
+        options.dryRun
+          ? `AI 选题 prompt 已生成：${reportPath}`
+          : `AI 选题卡已生成：${reportPath}`
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -689,6 +765,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runTeardownGoal(steps, options.teardownLimit, options.liveAi);
     await runTextTeardownGoal(steps, options.sampleLimit, options.liveAi);
     await runFeedbackReviewGoal(steps);
+    await runIdeaGoal(steps, options.teardownLimit, options.sampleLimit, options.liveAi);
   }
 
   if (options.goal === "scan") {
@@ -705,6 +782,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "feedback-review") {
     await runFeedbackReviewGoal(steps);
+  }
+
+  if (options.goal === "idea") {
+    await runIdeaGoal(steps, options.teardownLimit, options.sampleLimit, options.liveAi);
   }
 
   const completedAt = new Date().toISOString();
@@ -918,6 +999,68 @@ async function runFeedbackReviewGoal(steps: AgentRunStep[]): Promise<void> {
   });
 }
 
+async function runIdeaGoal(
+  steps: AgentRunStep[],
+  limit: number,
+  sampleLimit: number,
+  liveAi: boolean
+): Promise<void> {
+  await recordAgentStep(steps, "规则原创选题卡", async () => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+      if (!batch) {
+        return {
+          status: "skipped",
+          detail: "没有可用榜单批次，请先运行 crawl:all 或 agent:run -- --crawl"
+        };
+      }
+
+      const reportPath = await generateIdeaReport(batch, db, limit, sampleLimit, 20);
+      return {
+        detail: `生成 ${limit} 张原创选题卡`,
+        outputPath: reportPath
+      };
+    } finally {
+      db.close();
+    }
+  });
+
+  await recordAgentStep(
+    steps,
+    liveAi ? "AI 原创选题卡" : "AI 原创选题 Prompt",
+    async () => {
+      const db = openDb();
+      try {
+        const batch = await loadLatestBatch(db);
+        if (!batch) {
+          return {
+            status: "skipped",
+            detail: "没有可用榜单批次，跳过 AI 选题"
+          };
+        }
+
+        const reportPath = await generateAiIdeaReport(
+          batch,
+          db,
+          limit,
+          sampleLimit,
+          20,
+          !liveAi
+        );
+        return {
+          detail: liveAi
+            ? `调用模型生成 ${limit} 张原创选题卡`
+            : `生成 ${limit} 张原创选题 prompt`,
+          outputPath: reportPath
+        };
+      } finally {
+        db.close();
+      }
+    }
+  );
+}
+
 async function crawlOnce(options: CliOptions): Promise<void> {
   const jsonStore = new JsonSnapshotStore(config.dataDir);
   const limit = Number(options.limit);
@@ -1072,6 +1215,51 @@ async function generateAiTeardownReport(
   return writeAiTeardownReport({
     batch,
     analysis,
+    outputDir: config.reportDir,
+    modelConfig: makeModelConfig(process.env),
+    dryRun,
+    limit
+  });
+}
+
+async function generateIdeaReport(
+  batch: RankBatch,
+  db: SqliteRankStore,
+  limit: number,
+  sampleLimit: number,
+  feedbackLimit: number
+): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  const samples = (await openSamples().list()).slice(0, sampleLimit);
+  const feedback = await openFeedback().list({ limit: feedbackLimit });
+
+  return writeIdeaReport({
+    batch,
+    analysis,
+    samples,
+    feedback,
+    outputDir: config.reportDir,
+    limit
+  });
+}
+
+async function generateAiIdeaReport(
+  batch: RankBatch,
+  db: SqliteRankStore,
+  limit: number,
+  sampleLimit: number,
+  feedbackLimit: number,
+  dryRun: boolean
+): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  const samples = (await openSamples().list()).slice(0, sampleLimit);
+  const feedback = await openFeedback().list({ limit: feedbackLimit });
+
+  return writeAiIdeaReport({
+    batch,
+    analysis,
+    samples,
+    feedback,
     outputDir: config.reportDir,
     modelConfig: makeModelConfig(process.env),
     dryRun,
@@ -1267,15 +1455,19 @@ function buildAgentRunNextActions(
     actions.push("审阅 latest-agent-scan 和 AI 扫榜 prompt，挑 1-3 个题材方向进入拆书");
   }
 
-  if (goal === "daily" || goal === "teardown" || goal === "text-teardown") {
+  if (goal === "daily" || goal === "teardown" || goal === "text-teardown" || goal === "idea") {
     actions.push("对最有价值的拆书报告记录 feedback:add，形成可被下一轮读取的偏好记忆");
+  }
+
+  if (goal === "daily" || goal === "idea") {
+    actions.push("审阅 latest-idea-report，给最想继续开发的选题卡记录 feedback:add --type idea");
   }
 
   if (goal === "feedback-review") {
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("下一阶段可以新增 IdeaAgent：把扫榜趋势和高分拆书样本合成选题卡");
+  actions.push("下一阶段可以新增 RecipeAgent：把高分选题卡扩展成章节节奏表和第一章大纲");
   return actions;
 }
 
