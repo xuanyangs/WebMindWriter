@@ -8,6 +8,7 @@ import {
   writeCloudServiceRegistry
 } from "../services/cloudService.js";
 import { runIdeasService } from "../services/ideaService.js";
+import { runProjectDetailService } from "../services/projectDetailService.js";
 import { runProjectService } from "../services/projectService.js";
 import { runRecipeService } from "../services/recipeService.js";
 import { runWritingService } from "../services/writingService.js";
@@ -58,6 +59,8 @@ export type CloudHttpProjectsSmokeResult = CloudHttpSmokeResult;
 export type CloudHttpWritingSmokeResult = CloudHttpSmokeResult;
 
 export type CloudHttpValidationSmokeResult = CloudHttpSmokeResult;
+
+export type CloudHttpProjectDetailSmokeResult = CloudHttpSmokeResult;
 
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
@@ -252,6 +255,58 @@ async function handleCloudHttpRequestUnchecked(
     }
   }
 
+  const projectRoute = matchProjectRoute(request.path);
+  if (request.method === "GET" && projectRoute) {
+    const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
+    if (denied) return denied;
+
+    const ownershipDenied = authorizeProjectOwnership(request, projectRoute.projectId);
+    if (ownershipDenied) return ownershipDenied;
+
+    try {
+      const result = await runProjectDetailService(
+        {
+          projectDir: paths.projectDir
+        },
+        {
+          projectId: projectRoute.projectId
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          project: {
+            id: result.project.id,
+            title: result.project.title,
+            genreDirection: result.project.genreDirection,
+            status: result.project.status,
+            createdAt: result.project.createdAt,
+            updatedAt: result.project.updatedAt,
+            paths: result.project.paths
+          },
+          outlinePreview: result.outlinePreview,
+          memoryPreview: result.memoryPreview,
+          chapterCount: result.chapters.length,
+          chapters: result.chapters
+        }
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
   const chapterRoute = matchProjectChaptersRoute(request.path);
   if (request.method === "POST" && chapterRoute) {
     const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
@@ -395,6 +450,15 @@ function readBoolean(value: string | undefined, field: string): boolean {
   if (["false", "0", "no"].includes(value)) return false;
 
   throw new CloudHttpValidationError(field, `${field} must be a boolean.`);
+}
+
+function matchProjectRoute(pathname: string): { projectId: string } | undefined {
+  const match = pathname.match(/^\/api\/projects\/([^/]+)$/);
+  if (!match) return undefined;
+
+  return {
+    projectId: decodeURIComponent(match[1])
+  };
 }
 
 function matchProjectChaptersRoute(pathname: string): { projectId: string } | undefined {
@@ -800,6 +864,127 @@ export async function writeCloudHttpProjectsSmokeReport(
 
   await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
   await fs.writeFile(reportPath, renderHttpProjectsSmokeReport(smoke, jsonPath), "utf8");
+
+  return { jsonPath, reportPath, smoke };
+}
+
+export async function writeCloudHttpProjectDetailSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpProjectDetailSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const prepareProject = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: "/api/projects",
+      session: authorSession()
+    },
+    paths
+  );
+  const projectId = typeof prepareProject.body.projectId === "string"
+    ? prepareProject.body.projectId
+    : "missing-project";
+  const projectPath = `/api/projects/${encodeURIComponent(projectId)}`;
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+  }[] = [
+    {
+      name: "prepare-project",
+      request: {
+        method: "POST",
+        path: "/api/projects",
+        session: authorSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "project-owner-detail-allowed",
+      request: {
+        method: "GET",
+        path: projectPath,
+        session: projectOwnerSession(projectId)
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "author-detail-denied",
+      request: {
+        method: "GET",
+        path: projectPath,
+        session: authorSession()
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "anonymous-detail-denied",
+      request: {
+        method: "GET",
+        path: projectPath
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "project-owner-unowned-detail-denied",
+      request: {
+        method: "GET",
+        path: projectPath,
+        session: projectOwnerSession("another-project")
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "admin-detail-allowed",
+      request: {
+        method: "GET",
+        path: projectPath,
+        session: adminSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "unknown-project-not-found",
+      request: {
+        method: "GET",
+        path: "/api/projects/not-a-real-project",
+        session: adminSession()
+      },
+      expectedStatus: 404
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = item.name === "prepare-project"
+      ? prepareProject
+      : await handleCloudHttpRequest(item.request, paths);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus,
+      detail:
+        response.status === item.expectedStatus
+          ? "matched expected status"
+          : `expected ${item.expectedStatus}, received ${response.status}`
+    });
+  }
+
+  const smoke: CloudHttpProjectDetailSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-project-detail-smoke.json");
+  const reportPath = path.join(paths.reportDir, "latest-cloud-http-project-detail.md");
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(reportPath, renderHttpProjectDetailSmokeReport(smoke, jsonPath), "utf8");
 
   return { jsonPath, reportPath, smoke };
 }
@@ -1391,6 +1576,34 @@ function renderHttpProjectsSmokeReport(
     "1. 把 WritingAgent 继续接到 authenticated HTTP routes",
     "2. 为 POST /api/projects 增加 slug/title/force request schema validation",
     "3. 把 project-owner 级项目读取和章节写作权限接入 AuthPolicyAgent",
+    ""
+  ].join("\n");
+}
+
+function renderHttpProjectDetailSmokeReport(
+  smoke: CloudHttpProjectDetailSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Project Detail Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 增加项目章节内容读取 route，用于 Web 工作台打开单章",
+    "2. 为 project detail 增加更细的 owner/editor/collaborator 权限模型",
+    "3. 把项目详情接入桌面 UI 的项目面板",
     ""
   ].join("\n");
 }

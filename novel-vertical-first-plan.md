@@ -32,7 +32,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.11: Cloud HTTP ProjectAgent Route | Done | `npm run agent:cloud:http:projects:check` and `cloud/http-projects-smoke.json` |
 | Loop 6.12: Cloud HTTP WritingAgent Route | Done | `npm run agent:cloud:http:writing:check` and `cloud/http-writing-smoke.json` |
 | Loop 6.13: Cloud HTTP Validation + Project Ownership | Done | `npm run agent:cloud:http:validation:check` and `cloud/http-validation-smoke.json` |
+| Loop 6.14: Cloud HTTP Project Detail Route | Done | `npm run agent:cloud:http:project-detail:check` and `cloud/http-project-detail-smoke.json` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud HTTP Validation + Project Ownership, add project detail/history routes for the Web workspace before choosing real deployment, database, and auth providers.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud HTTP Project Detail Route, add a project chapter read route for the Web workspace before choosing real deployment, database, and auth providers.

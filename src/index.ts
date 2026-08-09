@@ -52,6 +52,7 @@ import { runWritingService } from "./services/writingService.js";
 import {
   writeCloudHttpAuthSmokeReport,
   writeCloudHttpIdeasSmokeReport,
+  writeCloudHttpProjectDetailSmokeReport,
   writeCloudHttpProjectsSmokeReport,
   writeCloudHttpRecipesSmokeReport,
   writeCloudHttpServerSmokeReport,
@@ -87,7 +88,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "cloud-http-recipes",
   "cloud-http-projects",
   "cloud-http-writing",
-  "cloud-http-validation"
+  "cloud-http-validation",
+  "cloud-http-project-detail"
 ];
 
 program
@@ -978,6 +980,15 @@ program
   });
 
 program
+  .command("agent:cloud:http:project-detail:check")
+  .description("运行本地 Cloud HTTP Project detail route smoke check")
+  .action(async () => {
+    const result = await generateCloudHttpProjectDetailSmokeReport();
+    console.log(`Cloud HTTP project detail smoke JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud HTTP project detail smoke 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1240,6 +1251,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "cloud-http-validation") {
     await runCloudHttpValidationSmokeGoal(steps);
+  }
+
+  if (options.goal === "cloud-http-project-detail") {
+    await runCloudHttpProjectDetailSmokeGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1672,6 +1687,7 @@ async function runCloudGoal(
   await runCloudHttpProjectsSmokeGoal(steps);
   await runCloudHttpWritingSmokeGoal(steps);
   await runCloudHttpValidationSmokeGoal(steps);
+  await runCloudHttpProjectDetailSmokeGoal(steps);
 }
 
 async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
@@ -1816,6 +1832,17 @@ async function runCloudHttpValidationSmokeGoal(steps: AgentRunStep[]): Promise<v
     const passed = result.smoke.checks.filter((check) => check.ok).length;
     return {
       detail: `${passed}/${result.smoke.checks.length} 个 HTTP validation 和 project ownership 检查通过`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runCloudHttpProjectDetailSmokeGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化 HTTP Project Detail Smoke", async () => {
+    const result = await generateCloudHttpProjectDetailSmokeReport();
+    const passed = result.smoke.checks.filter((check) => check.ok).length;
+    return {
+      detail: `${passed}/${result.smoke.checks.length} 个 HTTP project detail route 检查通过`,
       outputPath: result.reportPath
     };
   });
@@ -2273,6 +2300,12 @@ async function generateCloudHttpValidationSmokeReport(): Promise<
   return writeCloudHttpValidationSmokeReport(makeCloudServicePaths());
 }
 
+async function generateCloudHttpProjectDetailSmokeReport(): Promise<
+  Awaited<ReturnType<typeof writeCloudHttpProjectDetailSmokeReport>>
+> {
+  return writeCloudHttpProjectDetailSmokeReport(makeCloudServicePaths());
+}
+
 function makeCloudServicePaths() {
   return {
     cloudDir: config.cloudDir,
@@ -2555,10 +2588,11 @@ function buildAgentRunNextActions(
     goal === "cloud-http-recipes" ||
     goal === "cloud-http-projects" ||
     goal === "cloud-http-writing" ||
-    goal === "cloud-http-validation"
+    goal === "cloud-http-validation" ||
+    goal === "cloud-http-project-detail"
   ) {
     actions.push(
-      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin、latest-cloud-services、latest-cloud-http、latest-cloud-http-server、latest-cloud-http-auth、latest-cloud-http-ideas、latest-cloud-http-recipes、latest-cloud-http-projects、latest-cloud-http-writing 和 latest-cloud-http-validation，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP runtime 方案"
+      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin、latest-cloud-services、latest-cloud-http、latest-cloud-http-server、latest-cloud-http-auth、latest-cloud-http-ideas、latest-cloud-http-recipes、latest-cloud-http-projects、latest-cloud-http-writing、latest-cloud-http-validation 和 latest-cloud-http-project-detail，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP runtime 方案"
     );
   }
 
@@ -2566,7 +2600,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层、本地 HTTP adapter、本地 HTTP server smoke、HTTP auth middleware、authenticated IdeaAgent/RecipeAgent/ProjectAgent HTTP routes、project-owner WritingAgent HTTP route 和 HTTP request validation/project ownership");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层、本地 HTTP adapter、本地 HTTP server smoke、HTTP auth middleware、authenticated IdeaAgent/RecipeAgent/ProjectAgent HTTP routes、project-owner WritingAgent HTTP route、HTTP request validation/project ownership 和 project detail HTTP route");
   return actions;
 }
 
