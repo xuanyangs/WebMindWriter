@@ -23,6 +23,7 @@ export const config = {
   timeoutMs: readNumber("REQUEST_TIMEOUT_MS", 15_000),
   dataDir: path.resolve(projectRoot, process.env.DATA_DIR ?? "data"),
   reportDir: path.resolve(projectRoot, process.env.REPORT_DIR ?? "reports"),
+  sampleDir: path.resolve(projectRoot, process.env.SAMPLE_DIR ?? "samples"),
   databasePath: path.resolve(
     projectRoot,
     process.env.DATABASE_PATH ?? "data/fanqie-loop.sqlite"

@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { makeModelConfig } from "./agents/modelClient.js";
 import { writeAiScanReport } from "./agents/scanAgent.js";
 import { writeAiTeardownReport } from "./agents/teardownAgent.js";
+import { writeAiTextTeardownReport } from "./agents/textTeardownAgent.js";
 import { crawlFanqieRank } from "./fanqieRankCrawler.js";
 import { exportBatchToCsv, exportSnapshotToCsv } from "./csv.js";
 import { JsonSnapshotStore } from "./jsonSnapshotStore.js";
@@ -11,8 +12,10 @@ import { summarizeBatch } from "./analysis/rankDiff.js";
 import { writeAgentScanReport } from "./reports/agentScanReport.js";
 import { writeBookTeardownReport } from "./reports/bookTeardownReport.js";
 import { writeScanReport } from "./reports/scanReport.js";
+import { writeTextTeardownReport } from "./reports/textTeardownReport.js";
+import { SampleStore } from "./samples/sampleStore.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
-import type { RankBatch, RankSnapshot } from "./types.js";
+import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
 
 const program = new Command();
 
@@ -231,6 +234,52 @@ program
   });
 
 program
+  .command("sample:add")
+  .description("创建或导入人工整理的开局样本文本，不自动采集正文")
+  .requiredOption("--book-id <id>", "bookId，用作样本文件名")
+  .option("--title <title>", "作品标题")
+  .option("--source-url <url>", "样本来源链接")
+  .option("--file <path>", "从本地文本/Markdown 文件导入")
+  .action(async (options: {
+    bookId: string;
+    title?: string;
+    sourceUrl?: string;
+    file?: string;
+  }) => {
+    const samples = openSamples();
+    const filePath = options.file
+      ? await samples.importFromFile({
+          bookId: options.bookId,
+          title: options.title,
+          sourceUrl: options.sourceUrl,
+          inputPath: options.file
+        })
+      : await samples.createTemplate({
+          bookId: options.bookId,
+          title: options.title,
+          sourceUrl: options.sourceUrl
+        });
+
+    console.log(`样本文本文件已准备：${filePath}`);
+  });
+
+program
+  .command("sample:list")
+  .description("列出本地人工样本文本")
+  .action(async () => {
+    const samples = await openSamples().list();
+
+    if (samples.length === 0) {
+      console.log("还没有样本文本，请先运行 npm run sample:add。");
+      return;
+    }
+
+    for (const sample of samples) {
+      console.log(`${sample.bookId} | ${sample.title ?? "未命名"} | ${sample.filePath}`);
+    }
+  });
+
+program
   .command("report")
   .description("基于 SQLite 最新批次生成扫榜 Markdown 报告")
   .action(async () => {
@@ -358,6 +407,57 @@ program
     } finally {
       db.close();
     }
+  });
+
+program
+  .command("agent:teardown:text")
+  .description("基于人工开局样本文本生成规则版深度拆书报告")
+  .requiredOption("--book-id <id>", "要拆解的样本文本 bookId")
+  .action(async (options: { bookId: string }) => {
+    const sample = await openSamples().read(options.bookId);
+
+    if (!sample) {
+      console.log("没有找到样本文本，请先运行 npm run sample:add。");
+      return;
+    }
+
+    const item = await findLatestBookItem(options.bookId);
+    const reportPath = await writeTextTeardownReport({
+      sample,
+      item,
+      outputDir: config.reportDir
+    });
+
+    console.log(`文本拆书报告已生成：${reportPath}`);
+  });
+
+program
+  .command("agent:teardown:text:ai")
+  .description("调用 OpenAI-compatible 模型生成 AI 开局文本拆书报告")
+  .requiredOption("--book-id <id>", "要拆解的样本文本 bookId")
+  .option("--dry-run", "只生成 prompt 文件，不调用模型")
+  .action(async (options: { bookId: string; dryRun?: boolean }) => {
+    const sample = await openSamples().read(options.bookId);
+
+    if (!sample) {
+      console.log("没有找到样本文本，请先运行 npm run sample:add。");
+      return;
+    }
+
+    const item = await findLatestBookItem(options.bookId);
+    const reportPath = await writeAiTextTeardownReport({
+      sample,
+      item,
+      outputDir: config.reportDir,
+      modelConfig: makeModelConfig(process.env),
+      dryRun: Boolean(options.dryRun)
+    });
+
+    console.log(
+      options.dryRun
+        ? `AI 文本拆书 prompt 已生成：${reportPath}`
+        : `AI 文本拆书报告已生成：${reportPath}`
+    );
   });
 
 type CliOptions = {
@@ -577,6 +677,27 @@ function printSnapshot(snapshot: RankSnapshot, top: number): void {
 
 function openDb(): SqliteRankStore {
   return new SqliteRankStore(config.databasePath);
+}
+
+function openSamples(): SampleStore {
+  return new SampleStore(config.sampleDir);
+}
+
+async function findLatestBookItem(bookId: string): Promise<RankingItem | undefined> {
+  const db = openDb();
+  try {
+    const batch = await loadLatestBatch(db);
+    if (!batch) return undefined;
+
+    for (const snapshot of batch.snapshots) {
+      const item = snapshot.items.find((candidate) => candidate.bookId === bookId);
+      if (item) return item;
+    }
+
+    return undefined;
+  } finally {
+    db.close();
+  }
 }
 
 function makeBatchId(capturedAt: string): string {

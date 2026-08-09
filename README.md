@@ -92,6 +92,30 @@ npm run agent:scan
 npm run agent:teardown -- --limit 5
 ```
 
+创建一个人工开局样本文本模板：
+
+```bash
+npm run sample:add -- --book-id 7656411449241111576 --title "重生2009：我靠投资成首富"
+```
+
+从本地文件导入人工样本文本：
+
+```bash
+npm run sample:add -- --book-id 7656411449241111576 --title "重生2009：我靠投资成首富" --file ./my-opening.md
+```
+
+基于人工样本文本生成规则版深度拆书报告：
+
+```bash
+npm run agent:teardown:text -- --book-id 7656411449241111576
+```
+
+基于人工样本文本生成 AI prompt，不调用模型：
+
+```bash
+npm run agent:teardown:text:ai -- --book-id 7656411449241111576 --dry-run
+```
+
 生成 AI 扫榜 prompt，不调用模型：
 
 ```bash
@@ -126,6 +150,10 @@ reports/latest-agent-scan-ai.md
 reports/latest-agent-scan-ai.prompt.md
 reports/latest-book-teardown-ai.md
 reports/latest-book-teardown-ai.prompt.md
+reports/latest-text-teardown.md
+reports/latest-text-teardown-ai.md
+reports/latest-text-teardown-ai.prompt.md
+samples/book-openings/*.md
 ```
 
 ## 需要提交和不需要提交
@@ -153,6 +181,7 @@ data/*.jsonl
 data/*.csv
 data/*.sqlite
 reports/*.md
+samples/book-openings/*.md
 .env
 ```
 
@@ -196,11 +225,12 @@ AI 命令可以先用 dry-run 验证 prompt，不需要 API Key：
 ```bash
 npm run agent:scan:ai -- --dry-run
 npm run agent:teardown:ai -- --dry-run
+npm run agent:teardown:text:ai -- --book-id 7656411449241111576 --dry-run
 ```
 
 ## 下一步
 
 1. 连续采集至少两轮，验证排名变化分析。
 2. 配置 `MODEL_API_KEY`，跑通真实 AI 扫榜和 AI 拆书报告。
-3. 增加“开局三章人工摘录/上传”能力，让拆书报告能基于样本文本继续深入。
+3. 给样本文本增加人工标注字段，例如第一钩、第一爽点、弃读点。
 4. 提供本地查询 API，给桌面端或 Web 端调用。
