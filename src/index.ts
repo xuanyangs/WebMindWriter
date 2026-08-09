@@ -45,7 +45,10 @@ import {
   runCloudReadinessService,
   writeCloudServiceRegistry
 } from "./services/cloudService.js";
-import { writeCloudHttpSmokeReport } from "./server/cloudHttpAdapter.js";
+import {
+  writeCloudHttpServerSmokeReport,
+  writeCloudHttpSmokeReport
+} from "./server/cloudHttpAdapter.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
 import { buildDashboard } from "./ui/dashboardBuilder.js";
 import { writeChapterDraft } from "./writing/chapterWriter.js";
@@ -68,7 +71,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "cloud-admin",
   "cloud-auth",
   "cloud-services",
-  "cloud-http"
+  "cloud-http",
+  "cloud-http-server"
 ];
 
 program
@@ -896,6 +900,15 @@ program
   });
 
 program
+  .command("agent:cloud:http:server:check")
+  .description("启动本地 Cloud HTTP server 并运行 smoke check")
+  .action(async () => {
+    const result = await generateCloudHttpServerSmokeReport();
+    console.log(`Cloud HTTP server smoke JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud HTTP server smoke 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1130,6 +1143,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "cloud-http") {
     await runCloudHttpSmokeGoal(steps);
+  }
+
+  if (options.goal === "cloud-http-server") {
+    await runCloudHttpServerSmokeGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1555,6 +1572,7 @@ async function runCloudGoal(
   await runCloudAdminGoal(steps);
   await runCloudServiceRegistryGoal(steps);
   await runCloudHttpSmokeGoal(steps);
+  await runCloudHttpServerSmokeGoal(steps);
 }
 
 async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
@@ -1622,6 +1640,17 @@ async function runCloudHttpSmokeGoal(steps: AgentRunStep[]): Promise<void> {
     const passed = result.smoke.checks.filter((check) => check.ok).length;
     return {
       detail: `${passed}/${result.smoke.checks.length} 个 HTTP adapter 检查通过`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runCloudHttpServerSmokeGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化 HTTP Server Smoke", async () => {
+    const result = await generateCloudHttpServerSmokeReport();
+    const passed = result.smoke.checks.filter((check) => check.ok).length;
+    return {
+      detail: `${passed}/${result.smoke.checks.length} 个本地 HTTP server 检查通过`,
       outputPath: result.reportPath
     };
   });
@@ -2045,6 +2074,12 @@ async function generateCloudHttpSmokeReport(): Promise<
   return writeCloudHttpSmokeReport(makeCloudServicePaths());
 }
 
+async function generateCloudHttpServerSmokeReport(): Promise<
+  Awaited<ReturnType<typeof writeCloudHttpServerSmokeReport>>
+> {
+  return writeCloudHttpServerSmokeReport(makeCloudServicePaths());
+}
+
 function makeCloudServicePaths() {
   return {
     cloudDir: config.cloudDir,
@@ -2317,10 +2352,11 @@ function buildAgentRunNextActions(
     goal === "cloud-admin" ||
     goal === "cloud-auth" ||
     goal === "cloud-services" ||
-    goal === "cloud-http"
+    goal === "cloud-http" ||
+    goal === "cloud-http-server"
   ) {
     actions.push(
-      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin、latest-cloud-services 和 latest-cloud-http，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP adapter 方案"
+      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin、latest-cloud-services、latest-cloud-http 和 latest-cloud-http-server，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP runtime 方案"
     );
   }
 
@@ -2328,7 +2364,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层和本地 HTTP adapter");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层、本地 HTTP adapter 和本地 HTTP server smoke");
   return actions;
 }
 
