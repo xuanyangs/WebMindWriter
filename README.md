@@ -235,6 +235,12 @@ npm run agent:cloud:plan
 npm run agent:cloud:contract
 ```
 
+生成云化额度估算报告：
+
+```bash
+npm run agent:cloud:quota
+```
+
 运行 Agent Orchestrator，一次编排扫榜、榜单拆书、本地文本拆书和反馈汇总：
 
 ```bash
@@ -255,6 +261,7 @@ npm run agent:run -- --goal writing
 npm run agent:run -- --goal ui
 npm run agent:run -- --goal cloud
 npm run agent:run -- --goal cloud-contract
+npm run agent:run -- --goal cloud-quota
 ```
 
 默认不会重新抓取，也不会真实调用模型。需要联网抓榜时加 `--crawl`，需要真实调用模型时加 `--live-ai`：
@@ -309,10 +316,13 @@ reports/latest-writing-ai.prompt.md
 reports/latest-ui.md
 reports/latest-cloud.md
 reports/latest-cloud-contract.md
+reports/latest-cloud-quota.md
 reports/latest-agent-run.md
+reports/latest-agent-run.json
 ui/latest-dashboard.html
 cloud/cloud-readiness.json
 cloud/api-contract.json
+cloud/quota-report.json
 projects/<project-id>/
 projects/<project-id>/chapters/chapter-001.md
 samples/book-openings/*.md
@@ -344,6 +354,7 @@ data/*.jsonl
 data/*.csv
 data/*.sqlite
 reports/*.md
+reports/*.json
 samples/book-openings/*.md
 feedback/*.jsonl
 feedback/*.json

@@ -13,7 +13,8 @@ export type AgentRunGoal =
   | "writing"
   | "ui"
   | "cloud"
-  | "cloud-contract";
+  | "cloud-contract"
+  | "cloud-quota";
 
 export type AgentRunStepStatus = "done" | "skipped" | "failed";
 
@@ -48,13 +49,20 @@ export async function writeAgentRunReport(
 
   const content = renderAgentRunReport(report);
   const latestPath = path.join(outputDir, "latest-agent-run.md");
+  const latestJsonPath = path.join(outputDir, "latest-agent-run.json");
   const archivePath = path.join(
     outputDir,
     `${compactTime(report.completedAt)}-agent-run.md`
   );
+  const archiveJsonPath = path.join(
+    outputDir,
+    `${compactTime(report.completedAt)}-agent-run.json`
+  );
 
   await fs.writeFile(latestPath, content, "utf8");
   await fs.writeFile(archivePath, content, "utf8");
+  await fs.writeFile(latestJsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await fs.writeFile(archiveJsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   return latestPath;
 }

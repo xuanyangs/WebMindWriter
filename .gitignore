@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 reports/*.md
+reports/*.json
 samples/book-openings/*.md
 !samples/book-openings/.gitkeep
 feedback/*.jsonl

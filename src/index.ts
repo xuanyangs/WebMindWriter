@@ -3,6 +3,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { config } from "./config.js";
 import { writeCloudApiContract } from "./cloud/cloudContract.js";
+import { writeCloudQuotaReport } from "./cloud/quotaReport.js";
 import { writeCloudReadiness } from "./cloud/cloudReadiness.js";
 import { makeModelConfig } from "./agents/modelClient.js";
 import { writeAiRecipeReport } from "./agents/recipeAgent.js";
@@ -56,7 +57,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "writing",
   "ui",
   "cloud",
-  "cloud-contract"
+  "cloud-contract",
+  "cloud-quota"
 ];
 
 program
@@ -839,6 +841,15 @@ program
   });
 
 program
+  .command("agent:cloud:quota")
+  .description("生成云化额度报告：run、prompt、抓榜、项目和章节计量")
+  .action(async () => {
+    const result = await generateCloudQuotaReport();
+    console.log(`Cloud quota JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud quota 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1008,7 +1019,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runProjectGoal(steps);
     await runWritingGoal(steps, options.liveAi);
     await runUiGoal(steps);
-    await runCloudGoal(steps);
+    await runCloudGoal(steps, options);
   }
 
   if (options.goal === "scan") {
@@ -1048,11 +1059,15 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
   }
 
   if (options.goal === "cloud") {
-    await runCloudGoal(steps);
+    await runCloudGoal(steps, options);
   }
 
   if (options.goal === "cloud-contract") {
     await runCloudContractGoal(steps);
+  }
+
+  if (options.goal === "cloud-quota") {
+    await runCloudQuotaGoal(steps, options);
   }
 
   const completedAt = new Date().toISOString();
@@ -1458,7 +1473,10 @@ async function runUiGoal(steps: AgentRunStep[]): Promise<void> {
   });
 }
 
-async function runCloudGoal(steps: AgentRunStep[]): Promise<void> {
+async function runCloudGoal(
+  steps: AgentRunStep[],
+  options: AgentRunOptions
+): Promise<void> {
   await recordAgentStep(steps, "云化准备清单", async () => {
     const result = await generateCloudReadiness();
     return {
@@ -1470,6 +1488,7 @@ async function runCloudGoal(steps: AgentRunStep[]): Promise<void> {
   });
 
   await runCloudContractGoal(steps);
+  await runCloudQuotaGoal(steps, options);
 }
 
 async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
@@ -1477,6 +1496,23 @@ async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
     const result = await generateCloudApiContract();
     return {
       detail: `生成 ${result.contract.endpoints.length} 个云化 API 端点契约`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runCloudQuotaGoal(
+  steps: AgentRunStep[],
+  options?: AgentRunOptions
+): Promise<void> {
+  await recordAgentStep(steps, "云化额度报告", async () => {
+    const result = await generateCloudQuotaReport({
+      goal: options?.goal ?? "cloud-quota",
+      steps,
+      aiMode: options?.liveAi ? "live" : "dry-run"
+    });
+    return {
+      detail: `记录 ${result.quota.usage.doneSteps} 个完成步骤和 ${result.quota.usage.dryRunPromptEvents} 个 dry-run prompt 事件`,
       outputPath: result.reportPath
     };
   });
@@ -1875,6 +1911,18 @@ async function generateCloudApiContract(): Promise<
   });
 }
 
+async function generateCloudQuotaReport(source?: {
+  goal: string;
+  steps: AgentRunStep[];
+  aiMode: "dry-run" | "live";
+}): Promise<Awaited<ReturnType<typeof writeCloudQuotaReport>>> {
+  return writeCloudQuotaReport({
+    cloudDir: config.cloudDir,
+    reportDir: config.reportDir,
+    source
+  });
+}
+
 async function resolveNovelProject(projectId?: string) {
   const project = projectId
     ? await readNovelProject(config.projectDir, projectId)
@@ -2130,9 +2178,9 @@ function buildAgentRunNextActions(
     actions.push("打开 ui/latest-dashboard.html，用本地工作台审阅完整创作链路");
   }
 
-  if (goal === "daily" || goal === "cloud" || goal === "cloud-contract") {
+  if (goal === "daily" || goal === "cloud" || goal === "cloud-contract" || goal === "cloud-quota") {
     actions.push(
-      "审阅 latest-cloud 和 latest-cloud-contract，决定真实云化时选择的部署、数据库和登录方案"
+      "审阅 latest-cloud、latest-cloud-contract 和 latest-cloud-quota，决定真实云化时选择的部署、数据库、登录和额度方案"
     );
   }
 
@@ -2140,7 +2188,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备和 API 契约");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约和额度估算");
   return actions;
 }
 

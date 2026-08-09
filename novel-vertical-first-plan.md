@@ -20,7 +20,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 5: Desktop UI | Done | `npm run agent:ui:build` and `ui/latest-dashboard.html` |
 | Loop 6: Cloud Platform | Done | `npm run agent:cloud:plan` and `cloud/cloud-readiness.json` |
 | Loop 6.1: Cloud API Contract | Done | `npm run agent:cloud:contract` and `cloud/api-contract.json` |
+| Loop 6.2: Cloud QuotaAgent | Done | `npm run agent:cloud:quota` and `cloud/quota-report.json` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud API Contract, the next step is either to extract CLI logic into a service layer or choose real deployment, database, and auth providers.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud QuotaAgent, the next step is either to extract CLI logic into a service layer or choose real deployment, database, and auth providers.
