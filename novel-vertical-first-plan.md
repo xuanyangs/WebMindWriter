@@ -22,7 +22,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.1: Cloud API Contract | Done | `npm run agent:cloud:contract` and `cloud/api-contract.json` |
 | Loop 6.2: Cloud QuotaAgent | Done | `npm run agent:cloud:quota` and `cloud/quota-report.json` |
 | Loop 6.3: Cloud AdminAgent | Done | `npm run agent:cloud:admin` and `cloud/admin-overview.json` |
+| Loop 6.4: Cloud AuthPolicyAgent | Done | `npm run agent:cloud:auth` and `cloud/auth-policy.json` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud AdminAgent, the next step is either to extract CLI logic into a service layer or choose real deployment, database, and auth providers.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud AuthPolicyAgent, the next step is either to extract CLI logic into a service layer or choose real deployment, database, and auth providers.

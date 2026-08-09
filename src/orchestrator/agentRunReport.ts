@@ -15,7 +15,8 @@ export type AgentRunGoal =
   | "cloud"
   | "cloud-contract"
   | "cloud-quota"
-  | "cloud-admin";
+  | "cloud-admin"
+  | "cloud-auth";
 
 export type AgentRunStepStatus = "done" | "skipped" | "failed";
 

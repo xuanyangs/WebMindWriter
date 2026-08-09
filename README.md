@@ -247,6 +247,12 @@ npm run agent:cloud:quota
 npm run agent:cloud:admin
 ```
 
+生成云化登录和权限策略：
+
+```bash
+npm run agent:cloud:auth
+```
+
 运行 Agent Orchestrator，一次编排扫榜、榜单拆书、本地文本拆书和反馈汇总：
 
 ```bash
@@ -269,6 +275,7 @@ npm run agent:run -- --goal cloud
 npm run agent:run -- --goal cloud-contract
 npm run agent:run -- --goal cloud-quota
 npm run agent:run -- --goal cloud-admin
+npm run agent:run -- --goal cloud-auth
 ```
 
 默认不会重新抓取，也不会真实调用模型。需要联网抓榜时加 `--crawl`，需要真实调用模型时加 `--live-ai`：
@@ -323,6 +330,7 @@ reports/latest-writing-ai.prompt.md
 reports/latest-ui.md
 reports/latest-cloud.md
 reports/latest-cloud-contract.md
+reports/latest-cloud-auth.md
 reports/latest-cloud-quota.md
 reports/latest-cloud-admin.md
 reports/latest-agent-run.md
@@ -330,6 +338,7 @@ reports/latest-agent-run.json
 ui/latest-dashboard.html
 cloud/cloud-readiness.json
 cloud/api-contract.json
+cloud/auth-policy.json
 cloud/quota-report.json
 cloud/admin-overview.json
 projects/<project-id>/

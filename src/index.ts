@@ -3,6 +3,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { config } from "./config.js";
 import { writeCloudAdminReport } from "./cloud/adminReport.js";
+import { writeCloudAuthPolicy } from "./cloud/authPolicy.js";
 import { writeCloudApiContract } from "./cloud/cloudContract.js";
 import { writeCloudQuotaReport } from "./cloud/quotaReport.js";
 import { writeCloudReadiness } from "./cloud/cloudReadiness.js";
@@ -60,7 +61,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "cloud",
   "cloud-contract",
   "cloud-quota",
-  "cloud-admin"
+  "cloud-admin",
+  "cloud-auth"
 ];
 
 program
@@ -861,6 +863,15 @@ program
   });
 
 program
+  .command("agent:cloud:auth")
+  .description("生成云化登录和权限策略：角色、会话字段、路由矩阵和候选方案")
+  .action(async () => {
+    const result = await generateCloudAuthPolicy();
+    console.log(`Cloud auth JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud auth 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1083,6 +1094,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "cloud-admin") {
     await runCloudAdminGoal(steps);
+  }
+
+  if (options.goal === "cloud-auth") {
+    await runCloudAuthGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1503,6 +1518,7 @@ async function runCloudGoal(
   });
 
   await runCloudContractGoal(steps);
+  await runCloudAuthGoal(steps);
   await runCloudQuotaGoal(steps, options);
   await runCloudAdminGoal(steps);
 }
@@ -1512,6 +1528,16 @@ async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
     const result = await generateCloudApiContract();
     return {
       detail: `生成 ${result.contract.endpoints.length} 个云化 API 端点契约`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runCloudAuthGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化登录权限策略", async () => {
+    const result = await generateCloudAuthPolicy();
+    return {
+      detail: `生成 ${result.policy.roles.length} 个角色和 ${result.policy.routeRules.length} 条路由权限规则`,
       outputPath: result.reportPath
     };
   });
@@ -1939,6 +1965,15 @@ async function generateCloudApiContract(): Promise<
   });
 }
 
+async function generateCloudAuthPolicy(): Promise<
+  Awaited<ReturnType<typeof writeCloudAuthPolicy>>
+> {
+  return writeCloudAuthPolicy({
+    cloudDir: config.cloudDir,
+    reportDir: config.reportDir
+  });
+}
+
 async function generateCloudQuotaReport(source?: {
   goal: string;
   steps: AgentRunStep[];
@@ -2221,10 +2256,11 @@ function buildAgentRunNextActions(
     goal === "cloud" ||
     goal === "cloud-contract" ||
     goal === "cloud-quota" ||
-    goal === "cloud-admin"
+    goal === "cloud-admin" ||
+    goal === "cloud-auth"
   ) {
     actions.push(
-      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-quota 和 latest-cloud-admin，决定真实云化时选择的部署、数据库、登录、额度和后台方案"
+      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota 和 latest-cloud-admin，决定真实云化时选择的部署、数据库、登录、额度和后台方案"
     );
   }
 
@@ -2232,7 +2268,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、额度估算和管理后台预览");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算和管理后台预览");
   return actions;
 }
 
