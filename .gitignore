@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+reports/*.md
+data/*.sqlite
+data/*.sqlite-*
+data/*.json
+data/*.jsonl
+data/*.csv

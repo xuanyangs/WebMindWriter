@@ -1,0 +1,33 @@
+{
+  "name": "fanqie-loop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "crawl": "tsx src/index.ts crawl",
+    "crawl:all": "tsx src/index.ts crawl-all",
+    "loop": "tsx src/index.ts loop",
+    "loop:all": "tsx src/index.ts loop-all",
+    "export": "tsx src/index.ts export",
+    "export:all": "tsx src/index.ts export-all",
+    "db:import": "tsx src/index.ts db:import",
+    "query:latest": "tsx src/index.ts query:latest",
+    "query:rank": "tsx src/index.ts query:rank",
+    "query:book": "tsx src/index.ts query:book",
+    "report": "tsx src/index.ts report",
+    "test": "node --import tsx --test tests/rankDiff.test.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

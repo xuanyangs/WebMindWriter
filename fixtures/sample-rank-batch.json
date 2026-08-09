@@ -1,0 +1,63 @@
+{
+  "id": "sample-fanqie-rank-batch",
+  "source": "fanqie",
+  "capturedAt": "2026-08-09T00:00:00.000Z",
+  "targetCount": 1,
+  "totalItemCount": 3,
+  "snapshots": [
+    {
+      "id": "sample-rank-snapshot",
+      "source": "fanqie",
+      "rankUrl": "https://fanqienovel.com/rank/1_1_1140",
+      "rankName": "男频阅读榜-东方仙侠",
+      "gender": "1",
+      "rankMold": "1",
+      "categoryId": "1140",
+      "categoryName": "东方仙侠",
+      "capturedAt": "2026-08-09T00:00:00.000Z",
+      "itemCount": 3,
+      "items": [
+        {
+          "rank": 1,
+          "title": "样本作品一",
+          "author": "样本作者",
+          "category": "东方仙侠",
+          "tags": ["系统", "修仙"],
+          "description": "用于固定测试数据结构的样本，不代表真实榜单。",
+          "wordCount": "20.0万字",
+          "status": "连载中",
+          "heat": "100000 在读",
+          "bookId": "sample-book-1",
+          "sourceUrl": "https://fanqienovel.com/page/sample-book-1"
+        },
+        {
+          "rank": 2,
+          "title": "样本作品二",
+          "author": "样本作者",
+          "category": "东方仙侠",
+          "tags": ["穿越"],
+          "description": "用于固定测试数据结构的样本。",
+          "wordCount": "30.0万字",
+          "status": "连载中",
+          "heat": "80000 在读",
+          "bookId": "sample-book-2",
+          "sourceUrl": "https://fanqienovel.com/page/sample-book-2"
+        },
+        {
+          "rank": 3,
+          "title": "样本作品三",
+          "author": "样本作者",
+          "category": "东方仙侠",
+          "tags": [],
+          "description": "用于固定测试数据结构的样本。",
+          "wordCount": "15.0万字",
+          "status": "已完结",
+          "heat": "50000 在读",
+          "bookId": "sample-book-3",
+          "sourceUrl": "https://fanqienovel.com/page/sample-book-3"
+        }
+      ]
+    }
+  ],
+  "failures": []
+}
