@@ -29,6 +29,7 @@ export type CloudHttpRole = "public" | "author" | "project-owner" | "admin";
 export type CloudHttpSession = {
   userId: string;
   role: CloudHttpRole;
+  projectIds?: string[];
 };
 
 export type CloudHttpSmokeResult = {
@@ -56,7 +57,32 @@ export type CloudHttpProjectsSmokeResult = CloudHttpSmokeResult;
 
 export type CloudHttpWritingSmokeResult = CloudHttpSmokeResult;
 
+export type CloudHttpValidationSmokeResult = CloudHttpSmokeResult;
+
 export async function handleCloudHttpRequest(
+  request: CloudHttpRequest,
+  paths: CloudServicePaths
+): Promise<CloudHttpResponse> {
+  try {
+    return await handleCloudHttpRequestUnchecked(request, paths);
+  } catch (error) {
+    if (error instanceof CloudHttpValidationError) {
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          error: "Bad Request",
+          field: error.field,
+          message: error.message
+        }
+      };
+    }
+
+    throw error;
+  }
+}
+
+async function handleCloudHttpRequestUnchecked(
   request: CloudHttpRequest,
   paths: CloudServicePaths
 ): Promise<CloudHttpResponse> {
@@ -108,9 +134,9 @@ export async function handleCloudHttpRequest(
     if (denied) return denied;
 
     const result = await runIdeasService(paths, {
-      limit: readPositiveNumber(request.query?.limit, 5),
-      sampleLimit: readPositiveNumber(request.query?.sampleLimit, 8),
-      feedbackLimit: readPositiveNumber(request.query?.feedbackLimit, 20)
+      limit: readPositiveNumber(request.query?.limit, 5, "limit"),
+      sampleLimit: readPositiveNumber(request.query?.sampleLimit, 8, "sampleLimit"),
+      feedbackLimit: readPositiveNumber(request.query?.feedbackLimit, 20, "feedbackLimit")
     });
 
     if (!result) {
@@ -149,8 +175,8 @@ export async function handleCloudHttpRequest(
           feedbackDir: paths.feedbackDir
         },
         {
-          ideaIndex: readOptionalPositiveNumber(request.query?.ideaIndex),
-          feedbackLimit: readPositiveNumber(request.query?.feedbackLimit, 20)
+          ideaIndex: readOptionalPositiveNumber(request.query?.ideaIndex, "ideaIndex"),
+          feedbackLimit: readPositiveNumber(request.query?.feedbackLimit, 20, "feedbackLimit")
         }
       );
 
@@ -194,7 +220,7 @@ export async function handleCloudHttpRequest(
         {
           slug: request.query?.slug,
           title: request.query?.title,
-          force: readBoolean(request.query?.force),
+          force: readBoolean(request.query?.force, "force"),
           reuseExisting: true
         }
       );
@@ -231,6 +257,9 @@ export async function handleCloudHttpRequest(
     const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
     if (denied) return denied;
 
+    const ownershipDenied = authorizeProjectOwnership(request, chapterRoute.projectId);
+    if (ownershipDenied) return ownershipDenied;
+
     try {
       const result = await runWritingService(
         {
@@ -241,9 +270,10 @@ export async function handleCloudHttpRequest(
           projectId: chapterRoute.projectId,
           chapterNumber: readPositiveNumber(
             request.query?.chapterNumber ?? request.query?.chapter,
-            1
+            1,
+            request.query?.chapterNumber !== undefined ? "chapterNumber" : "chapter"
           ),
-          force: readBoolean(request.query?.force)
+          force: readBoolean(request.query?.force, "force")
         }
       );
 
@@ -284,6 +314,15 @@ export async function handleCloudHttpRequest(
   };
 }
 
+class CloudHttpValidationError extends Error {
+  constructor(
+    readonly field: string,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
 function authorizeCloudRequest(
   request: CloudHttpRequest,
   allowedRoles: CloudHttpRole[]
@@ -303,20 +342,59 @@ function authorizeCloudRequest(
   };
 }
 
-function readPositiveNumber(value: string | undefined, fallback: number): number {
+function authorizeProjectOwnership(
+  request: CloudHttpRequest,
+  projectId: string
+): CloudHttpResponse | undefined {
+  if (request.session?.role === "admin") return undefined;
+
+  if (
+    request.session?.role === "project-owner" &&
+    request.session.projectIds?.includes(projectId)
+  ) {
+    return undefined;
+  }
+
+  return {
+    status: 403,
+    body: {
+      ok: false,
+      error: "Project access denied",
+      projectId,
+      userId: request.session?.userId ?? "anonymous"
+    }
+  };
+}
+
+function readPositiveNumber(
+  value: string | undefined,
+  fallback: number,
+  field: string
+): number {
   if (!value) return fallback;
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+  if (Number.isInteger(parsed) && parsed > 0) return parsed;
+
+  throw new CloudHttpValidationError(field, `${field} must be a positive integer.`);
 }
 
-function readOptionalPositiveNumber(value: string | undefined): number | undefined {
+function readOptionalPositiveNumber(
+  value: string | undefined,
+  field: string
+): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+  if (Number.isInteger(parsed) && parsed > 0) return parsed;
+
+  throw new CloudHttpValidationError(field, `${field} must be a positive integer.`);
 }
 
-function readBoolean(value: string | undefined): boolean {
-  return value === "true" || value === "1" || value === "yes";
+function readBoolean(value: string | undefined, field: string): boolean {
+  if (!value) return false;
+  if (["true", "1", "yes"].includes(value)) return true;
+  if (["false", "0", "no"].includes(value)) return false;
+
+  throw new CloudHttpValidationError(field, `${field} must be a boolean.`);
 }
 
 function matchProjectChaptersRoute(pathname: string): { projectId: string } | undefined {
@@ -748,6 +826,7 @@ export async function writeCloudHttpWritingSmokeReport(
     ? prepareProject.body.projectId
     : "missing-project";
   const chapterPath = `/api/projects/${encodeURIComponent(projectId)}/chapters`;
+  const ownerSession = projectOwnerSession(projectId);
   const requests: {
     name: string;
     request: CloudHttpRequest;
@@ -770,7 +849,7 @@ export async function writeCloudHttpWritingSmokeReport(
         query: {
           chapter: "1"
         },
-        session: projectOwnerSession()
+        session: ownerSession
       },
       expectedStatus: 200
     },
@@ -799,7 +878,7 @@ export async function writeCloudHttpWritingSmokeReport(
       request: {
         method: "POST",
         path: "/api/projects/not-a-real-project/chapters",
-        session: projectOwnerSession()
+        session: adminSession()
       },
       expectedStatus: 404
     }
@@ -831,6 +910,149 @@ export async function writeCloudHttpWritingSmokeReport(
 
   await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
   await fs.writeFile(reportPath, renderHttpWritingSmokeReport(smoke, jsonPath), "utf8");
+
+  return { jsonPath, reportPath, smoke };
+}
+
+export async function writeCloudHttpValidationSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpValidationSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const prepareProject = await handleCloudHttpRequest(
+    {
+      method: "POST",
+      path: "/api/projects",
+      session: authorSession()
+    },
+    paths
+  );
+  const projectId = typeof prepareProject.body.projectId === "string"
+    ? prepareProject.body.projectId
+    : "missing-project";
+  const chapterPath = `/api/projects/${encodeURIComponent(projectId)}/chapters`;
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+  }[] = [
+    {
+      name: "prepare-project",
+      request: {
+        method: "POST",
+        path: "/api/projects",
+        session: authorSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "ideas-invalid-limit-bad-request",
+      request: {
+        method: "POST",
+        path: "/api/ideas",
+        query: {
+          limit: "0"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "recipes-invalid-idea-index-bad-request",
+      request: {
+        method: "POST",
+        path: "/api/recipes",
+        query: {
+          ideaIndex: "abc"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "projects-invalid-force-bad-request",
+      request: {
+        method: "POST",
+        path: "/api/projects",
+        query: {
+          force: "maybe"
+        },
+        session: authorSession()
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "writing-invalid-chapter-bad-request",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        query: {
+          chapter: "-1"
+        },
+        session: projectOwnerSession(projectId)
+      },
+      expectedStatus: 400
+    },
+    {
+      name: "project-owner-owned-writing-allowed",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        session: projectOwnerSession(projectId)
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "project-owner-unowned-writing-denied",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        session: projectOwnerSession("another-project")
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "admin-unowned-writing-allowed",
+      request: {
+        method: "POST",
+        path: chapterPath,
+        session: adminSession()
+      },
+      expectedStatus: 200
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = item.name === "prepare-project"
+      ? prepareProject
+      : await handleCloudHttpRequest(item.request, paths);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus,
+      detail:
+        response.status === item.expectedStatus
+          ? "matched expected status"
+          : `expected ${item.expectedStatus}, received ${response.status}`
+    });
+  }
+
+  const smoke: CloudHttpValidationSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-validation-smoke.json");
+  const reportPath = path.join(paths.reportDir, "latest-cloud-http-validation.md");
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(reportPath, renderHttpValidationSmokeReport(smoke, jsonPath), "utf8");
 
   return { jsonPath, reportPath, smoke };
 }
@@ -941,9 +1163,19 @@ function readSession(request: http.IncomingMessage): CloudHttpSession | undefine
 
   const userIdHeader = request.headers["x-webmind-user-id"];
   const userId = Array.isArray(userIdHeader) ? userIdHeader[0] : userIdHeader;
+  const projectIdsHeader = request.headers["x-webmind-project-ids"];
+  const rawProjectIds = Array.isArray(projectIdsHeader)
+    ? projectIdsHeader[0]
+    : projectIdsHeader;
+  const projectIds = rawProjectIds
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
   return {
     userId: userId ?? `local-${role}`,
-    role
+    role,
+    projectIds
   };
 }
 
@@ -970,10 +1202,11 @@ function authorSession(): CloudHttpSession {
   };
 }
 
-function projectOwnerSession(): CloudHttpSession {
+function projectOwnerSession(...projectIds: string[]): CloudHttpSession {
   return {
     userId: "local-author",
-    role: "project-owner"
+    role: "project-owner",
+    projectIds
   };
 }
 
@@ -1186,6 +1419,34 @@ function renderHttpWritingSmokeReport(
     "1. 为 POST /api/projects/{projectId}/chapters 增加 request schema validation",
     "2. 把 project-owner session 的 projectIds 校验接到真实 Auth provider",
     "3. 把章节草稿结果接到 Web 工作台的项目详情页",
+    ""
+  ].join("\n");
+}
+
+function renderHttpValidationSmokeReport(
+  smoke: CloudHttpValidationSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Validation Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 把 query validation 扩展为 body schema validation",
+    "2. 把 x-webmind-project-ids 替换为真实 Auth provider 的项目授权 claim",
+    "3. 为章节写作结果增加 Web 工作台端到端用例",
     ""
   ].join("\n");
 }

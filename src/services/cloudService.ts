@@ -170,6 +170,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       cliCommand: "agent:write:chapter",
       httpTarget: "POST /api/projects/{projectId}/chapters",
       writes: ["projects/<project-id>/chapters/chapter-001.md", "reports/latest-writing.md"]
+    },
+    {
+      id: "http-validation-smoke",
+      callable: "writeCloudHttpValidationSmokeReport",
+      purpose: "验证 HTTP query 参数、布尔参数和 project-owner 项目归属边界",
+      cliCommand: "agent:cloud:http:validation:check",
+      httpTarget: "local smoke only",
+      writes: ["cloud/http-validation-smoke.json", "reports/latest-cloud-http-validation.md"]
     }
   ];
 }
