@@ -1,6 +1,9 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { Command } from "commander";
 import { config } from "./config.js";
 import { makeModelConfig } from "./agents/modelClient.js";
+import { writeAiRecipeReport } from "./agents/recipeAgent.js";
 import { writeAiScanReport } from "./agents/scanAgent.js";
 import { writeAiTeardownReport } from "./agents/teardownAgent.js";
 import { writeAiTextTeardownReport } from "./agents/textTeardownAgent.js";
@@ -13,6 +16,7 @@ import { summarizeBatch } from "./analysis/rankDiff.js";
 import { writeAgentScanReport } from "./reports/agentScanReport.js";
 import { writeBookTeardownReport } from "./reports/bookTeardownReport.js";
 import { writeIdeaReport, writeIdeasReport } from "./reports/ideaReport.js";
+import { parseIdeaCards, writeRecipeReport } from "./reports/recipeReport.js";
 import { readLatestIdeaSourceReports } from "./reports/reportContext.js";
 import { writeScanReport } from "./reports/scanReport.js";
 import { writeTextTeardownReport } from "./reports/textTeardownReport.js";
@@ -35,7 +39,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "teardown",
   "text-teardown",
   "feedback-review",
-  "idea"
+  "idea",
+  "recipe"
 ];
 
 program
@@ -675,6 +680,51 @@ program
   });
 
 program
+  .command("agent:recipe")
+  .description("把 latest-ideas.md 中的选题卡扩展成写作配方")
+  .option("--idea-index <number>", "指定选题卡序号；默认选择推荐指数最高的一张")
+  .option("--feedback-limit <number>", "纳入反馈记忆数量", "20")
+  .action(async (options: {
+    ideaIndex?: string;
+    feedbackLimit: string;
+  }) => {
+    const reportPath = await generateRecipeReport({
+      ideaIndex: options.ideaIndex
+        ? parsePositiveInteger(options.ideaIndex, "--idea-index")
+        : undefined,
+      feedbackLimit: parsePositiveInteger(options.feedbackLimit, "--feedback-limit")
+    });
+
+    console.log(`RecipeAgent 写作配方已生成：${reportPath}`);
+  });
+
+program
+  .command("agent:recipe:ai")
+  .description("把 latest-ideas.md 中的选题卡转成 AI 写作配方")
+  .option("--idea-index <number>", "指定选题卡序号；默认选择推荐指数最高的一张")
+  .option("--feedback-limit <number>", "纳入反馈记忆数量", "20")
+  .option("--dry-run", "只生成 prompt 文件，不调用模型")
+  .action(async (options: {
+    ideaIndex?: string;
+    feedbackLimit: string;
+    dryRun?: boolean;
+  }) => {
+    const reportPath = await generateAiRecipeReport({
+      ideaIndex: options.ideaIndex
+        ? parsePositiveInteger(options.ideaIndex, "--idea-index")
+        : undefined,
+      feedbackLimit: parsePositiveInteger(options.feedbackLimit, "--feedback-limit"),
+      dryRun: Boolean(options.dryRun)
+    });
+
+    console.log(
+      options.dryRun
+        ? `AI 写作配方 prompt 已生成：${reportPath}`
+        : `AI 写作配方已生成：${reportPath}`
+    );
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -840,6 +890,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runTextTeardownGoal(steps, options.sampleLimit, options.liveAi);
     await runFeedbackReviewGoal(steps);
     await runIdeaGoal(steps, options.teardownLimit, options.sampleLimit, options.liveAi);
+    await runRecipeGoal(steps, options.liveAi);
   }
 
   if (options.goal === "scan") {
@@ -860,6 +911,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "idea") {
     await runIdeaGoal(steps, options.teardownLimit, options.sampleLimit, options.liveAi);
+  }
+
+  if (options.goal === "recipe") {
+    await runRecipeGoal(steps, options.liveAi);
   }
 
   const completedAt = new Date().toISOString();
@@ -1135,6 +1190,50 @@ async function runIdeaGoal(
   );
 }
 
+async function runRecipeGoal(
+  steps: AgentRunStep[],
+  liveAi: boolean
+): Promise<void> {
+  await recordAgentStep(steps, "规则写作配方", async () => {
+    if (!(await fileExists(latestIdeasPath()))) {
+      return {
+        status: "skipped",
+        detail: "没有 latest-ideas.md，请先运行 agent:ideas"
+      };
+    }
+
+    const reportPath = await generateRecipeReport({ feedbackLimit: 20 });
+    return {
+      detail: "从最高推荐指数选题卡生成写作配方",
+      outputPath: reportPath
+    };
+  });
+
+  await recordAgentStep(
+    steps,
+    liveAi ? "AI 写作配方" : "AI 写作配方 Prompt",
+    async () => {
+      if (!(await fileExists(latestIdeasPath()))) {
+        return {
+          status: "skipped",
+          detail: "没有 latest-ideas.md，跳过 AI 写作配方"
+        };
+      }
+
+      const reportPath = await generateAiRecipeReport({
+        feedbackLimit: 20,
+        dryRun: !liveAi
+      });
+      return {
+        detail: liveAi
+          ? "调用模型把最高推荐指数选题卡扩展成写作配方"
+          : "为最高推荐指数选题卡生成写作配方 prompt",
+        outputPath: reportPath
+      };
+    }
+  );
+}
+
 async function crawlOnce(options: CliOptions): Promise<void> {
   const jsonStore = new JsonSnapshotStore(config.dataDir);
   const limit = Number(options.limit);
@@ -1390,6 +1489,53 @@ async function generateAiIdeasReport(
   });
 }
 
+async function generateRecipeReport(options: {
+  ideaIndex?: number;
+  feedbackLimit: number;
+}): Promise<string> {
+  const ideasPath = latestIdeasPath();
+  const ideasMarkdown = await fs.readFile(ideasPath, "utf8");
+  const feedback = await openFeedback().list({ limit: options.feedbackLimit });
+
+  return writeRecipeReport({
+    ideasPath,
+    ideasMarkdown,
+    feedback,
+    outputDir: config.reportDir,
+    ideaIndex: options.ideaIndex
+  });
+}
+
+async function generateAiRecipeReport(options: {
+  ideaIndex?: number;
+  feedbackLimit: number;
+  dryRun: boolean;
+}): Promise<string> {
+  const ideasPath = latestIdeasPath();
+  const ideasMarkdown = await fs.readFile(ideasPath, "utf8");
+  const ideas = parseIdeaCards(ideasMarkdown);
+  const idea = options.ideaIndex !== undefined
+    ? ideas.find((candidate) => candidate.index === options.ideaIndex)
+    : [...ideas].sort(
+        (a, b) => b.recommendationScore - a.recommendationScore || a.index - b.index
+      )[0];
+
+  if (!idea) {
+    throw new Error("No idea card found in latest-ideas.md.");
+  }
+
+  const feedback = await openFeedback().list({ limit: options.feedbackLimit });
+
+  return writeAiRecipeReport({
+    idea,
+    ideasPath,
+    feedback,
+    outputDir: config.reportDir,
+    modelConfig: makeModelConfig(process.env),
+    dryRun: options.dryRun
+  });
+}
+
 function buildBatchAnalysis(
   batch: RankBatch,
   db: SqliteRankStore
@@ -1448,6 +1594,20 @@ function openFeedback(): FeedbackStore {
   return new FeedbackStore(config.feedbackDir);
 }
 
+function latestIdeasPath(): string {
+  return path.join(config.reportDir, "latest-ideas.md");
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch (error) {
+    if (isMissingFile(error)) return false;
+    throw error;
+  }
+}
+
 async function findLatestBookItem(bookId: string): Promise<RankingItem | undefined> {
   const db = openDb();
   try {
@@ -1475,6 +1635,15 @@ function sleep(ms: number): Promise<void> {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
 }
 
 function parseAgentRunGoal(value: string): AgentRunGoal {
@@ -1583,14 +1752,18 @@ function buildAgentRunNextActions(
   }
 
   if (goal === "daily" || goal === "idea") {
-    actions.push("审阅 latest-idea-report，给最想继续开发的选题卡记录 feedback:add --type idea");
+    actions.push("审阅 latest-ideas，给最想继续开发的选题卡记录 feedback:add --type idea");
+  }
+
+  if (goal === "daily" || goal === "recipe") {
+    actions.push("审阅 latest-recipe，确认后用 feedback:add --type recipe 记录配方质量");
   }
 
   if (goal === "feedback-review") {
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("下一阶段可以新增 RecipeAgent：把高分选题卡扩展成章节节奏表和第一章大纲");
+  actions.push("下一阶段可以新增 Novel Project：把高分写作配方固化成本地小说项目");
   return actions;
 }
 

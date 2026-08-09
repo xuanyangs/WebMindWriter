@@ -169,6 +169,24 @@ npm run agent:ideas:ai -- --limit 5 --dry-run
 npm run agent:idea:ai -- --limit 5 --dry-run
 ```
 
+把推荐指数最高的选题卡扩展成写作配方：
+
+```bash
+npm run agent:recipe
+```
+
+指定某张选题卡生成配方：
+
+```bash
+npm run agent:recipe -- --idea-index 2
+```
+
+生成 AI 写作配方 prompt，不调用模型：
+
+```bash
+npm run agent:recipe:ai -- --dry-run
+```
+
 运行 Agent Orchestrator，一次编排扫榜、榜单拆书、本地文本拆书和反馈汇总：
 
 ```bash
@@ -183,6 +201,7 @@ npm run agent:run -- --goal teardown --limit 5
 npm run agent:run -- --goal text-teardown --sample-limit 6
 npm run agent:run -- --goal feedback-review
 npm run agent:run -- --goal idea
+npm run agent:run -- --goal recipe
 ```
 
 默认不会重新抓取，也不会真实调用模型。需要联网抓榜时加 `--crawl`，需要真实调用模型时加 `--live-ai`：
@@ -199,6 +218,7 @@ npm run agent:scan:ai
 npm run agent:teardown:ai -- --limit 5
 npm run agent:ideas:ai -- --limit 5
 npm run agent:idea:ai -- --limit 5
+npm run agent:recipe:ai
 ```
 
 ## 输出位置
@@ -225,6 +245,9 @@ reports/latest-ideas-ai.prompt.md
 reports/latest-idea-report.md
 reports/latest-idea-ai.md
 reports/latest-idea-ai.prompt.md
+reports/latest-recipe.md
+reports/latest-recipe-ai.md
+reports/latest-recipe-ai.prompt.md
 reports/latest-agent-run.md
 samples/book-openings/*.md
 feedback/feedback.jsonl
@@ -303,6 +326,7 @@ npm run agent:scan:ai -- --dry-run
 npm run agent:teardown:ai -- --dry-run
 npm run agent:teardown:text:ai -- --book-id 7656411449241111576 --dry-run
 npm run agent:ideas:ai -- --dry-run
+npm run agent:recipe:ai -- --dry-run
 ```
 
 ## 下一步
