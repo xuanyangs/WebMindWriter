@@ -20,6 +20,8 @@
     "report": "tsx src/index.ts report",
     "agent:scan": "tsx src/index.ts agent:scan",
     "agent:teardown": "tsx src/index.ts agent:teardown",
+    "agent:scan:ai": "tsx src/index.ts agent:scan:ai",
+    "agent:teardown:ai": "tsx src/index.ts agent:teardown:ai",
     "test": "node --import tsx --test tests/rankDiff.test.ts",
     "check": "tsc --noEmit"
   },

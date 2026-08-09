@@ -1,5 +1,8 @@
 import { Command } from "commander";
 import { config } from "./config.js";
+import { makeModelConfig } from "./agents/modelClient.js";
+import { writeAiScanReport } from "./agents/scanAgent.js";
+import { writeAiTeardownReport } from "./agents/teardownAgent.js";
 import { crawlFanqieRank } from "./fanqieRankCrawler.js";
 import { exportBatchToCsv, exportSnapshotToCsv } from "./csv.js";
 import { JsonSnapshotStore } from "./jsonSnapshotStore.js";
@@ -301,6 +304,62 @@ program
     }
   });
 
+program
+  .command("agent:scan:ai")
+  .description("调用 OpenAI-compatible 模型生成 AI 扫榜报告")
+  .option("--dry-run", "只生成 prompt 文件，不调用模型")
+  .action(async (options: { dryRun?: boolean }) => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+
+      if (!batch) {
+        console.log("没有可生成 AI 扫榜报告的批次，请先运行 npm run crawl:all。");
+        return;
+      }
+
+      const reportPath = await generateAiScanReport(batch, db, Boolean(options.dryRun));
+      console.log(
+        options.dryRun
+          ? `AI 扫榜 prompt 已生成：${reportPath}`
+          : `AI 扫榜报告已生成：${reportPath}`
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+program
+  .command("agent:teardown:ai")
+  .description("调用 OpenAI-compatible 模型生成 AI 拆书报告")
+  .option("--limit <number>", "拆解样本数", "5")
+  .option("--dry-run", "只生成 prompt 文件，不调用模型")
+  .action(async (options: { limit: string; dryRun?: boolean }) => {
+    const db = openDb();
+    try {
+      const batch = await loadLatestBatch(db);
+
+      if (!batch) {
+        console.log("没有可生成 AI 拆书报告的批次，请先运行 npm run crawl:all。");
+        return;
+      }
+
+      const reportPath = await generateAiTeardownReport(
+        batch,
+        db,
+        Number(options.limit),
+        Boolean(options.dryRun)
+      );
+      console.log(
+        options.dryRun
+          ? `AI 拆书 prompt 已生成：${reportPath}`
+          : `AI 拆书报告已生成：${reportPath}`
+      );
+    } finally {
+      db.close();
+    }
+  });
+
 type CliOptions = {
   url: string;
   limit: string;
@@ -436,6 +495,38 @@ async function generateBookTeardownReport(
 ): Promise<string> {
   const analysis = buildBatchAnalysis(batch, db);
   return writeBookTeardownReport(batch, analysis, config.reportDir, limit);
+}
+
+async function generateAiScanReport(
+  batch: RankBatch,
+  db: SqliteRankStore,
+  dryRun: boolean
+): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  return writeAiScanReport({
+    batch,
+    analysis,
+    outputDir: config.reportDir,
+    modelConfig: makeModelConfig(process.env),
+    dryRun
+  });
+}
+
+async function generateAiTeardownReport(
+  batch: RankBatch,
+  db: SqliteRankStore,
+  limit: number,
+  dryRun: boolean
+): Promise<string> {
+  const analysis = buildBatchAnalysis(batch, db);
+  return writeAiTeardownReport({
+    batch,
+    analysis,
+    outputDir: config.reportDir,
+    modelConfig: makeModelConfig(process.env),
+    dryRun,
+    limit
+  });
 }
 
 function buildBatchAnalysis(

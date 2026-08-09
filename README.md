@@ -92,6 +92,25 @@ npm run agent:scan
 npm run agent:teardown -- --limit 5
 ```
 
+生成 AI 扫榜 prompt，不调用模型：
+
+```bash
+npm run agent:scan:ai -- --dry-run
+```
+
+生成 AI 拆书 prompt，不调用模型：
+
+```bash
+npm run agent:teardown:ai -- --limit 5 --dry-run
+```
+
+配置 `MODEL_API_KEY` 后调用 OpenAI-compatible 模型：
+
+```bash
+npm run agent:scan:ai
+npm run agent:teardown:ai -- --limit 5
+```
+
 ## 输出位置
 
 ```text
@@ -103,6 +122,10 @@ data/fanqie-loop.sqlite
 reports/latest-scan-report.md
 reports/latest-agent-scan.md
 reports/latest-book-teardown.md
+reports/latest-agent-scan-ai.md
+reports/latest-agent-scan-ai.prompt.md
+reports/latest-book-teardown-ai.md
+reports/latest-book-teardown-ai.prompt.md
 ```
 
 ## 需要提交和不需要提交
@@ -168,9 +191,16 @@ npm run check
 npm test
 ```
 
+AI 命令可以先用 dry-run 验证 prompt，不需要 API Key：
+
+```bash
+npm run agent:scan:ai -- --dry-run
+npm run agent:teardown:ai -- --dry-run
+```
+
 ## 下一步
 
 1. 连续采集至少两轮，验证排名变化分析。
-2. 接入模型 API，把 `agent:scan` 和 `agent:teardown` 从规则报告升级为真正的 Agent 报告。
+2. 配置 `MODEL_API_KEY`，跑通真实 AI 扫榜和 AI 拆书报告。
 3. 增加“开局三章人工摘录/上传”能力，让拆书报告能基于样本文本继续深入。
 4. 提供本地查询 API，给桌面端或 Web 端调用。
