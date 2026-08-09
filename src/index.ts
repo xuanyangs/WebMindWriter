@@ -72,6 +72,7 @@ import {
   startLocalUiServer,
   writeLocalUiServerSmokeReport
 } from "./ui/localUiServer.js";
+import { writeUiBrowserSmokeReport } from "./ui/browserSmoke.js";
 
 const program = new Command();
 const agentRunGoals: AgentRunGoal[] = [
@@ -87,6 +88,7 @@ const agentRunGoals: AgentRunGoal[] = [
   "ui",
   "ui-editor",
   "ui-server",
+  "ui-browser",
   "cloud",
   "cloud-contract",
   "cloud-quota",
@@ -918,6 +920,26 @@ program
   });
 
 program
+  .command("agent:ui:browser:check")
+  .description("Run a browser-script smoke check against the generated local UI")
+  .option("--port <number>", "HTTP port", "4317")
+  .action(async (options: { port: string }) => {
+    await generateDashboard();
+    await generateChapterEditor();
+    const result = await generateUiBrowserSmokeReport(
+      parsePositiveInteger(options.port, "--port")
+    );
+    const passed = result.smoke.checks.filter((check) => check.ok).length;
+
+    console.log(`UI browser smoke JSON: ${result.jsonPath}`);
+    console.log(`UI browser smoke report: ${result.reportPath}`);
+    console.log(`UI browser checks: ${passed}/${result.smoke.checks.length}`);
+    if (passed !== result.smoke.checks.length) {
+      throw new Error("UI browser smoke check failed.");
+    }
+  });
+
+program
   .command("agent:cloud:plan")
   .description("生成云化准备报告：登录、额度、数据边界和管理后台")
   .action(async () => {
@@ -1269,6 +1291,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runUiGoal(steps);
     await runUiEditorGoal(steps);
     await runUiServerGoal(steps);
+    await runUiBrowserGoal(steps);
     await runCloudGoal(steps, options);
   }
 
@@ -1314,6 +1337,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "ui-server") {
     await runUiServerGoal(steps);
+  }
+
+  if (options.goal === "ui-browser") {
+    await runUiBrowserGoal(steps);
   }
 
   if (options.goal === "cloud") {
@@ -1822,6 +1849,23 @@ async function runUiServerGoal(steps: AgentRunStep[]): Promise<void> {
 
     return {
       detail: `${passed}/${result.smoke.checks.length} local UI server checks passed`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runUiBrowserGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "UI browser smoke", async () => {
+    await generateDashboard();
+    await generateChapterEditor();
+    const result = await generateUiBrowserSmokeReport(4317);
+    const passed = result.smoke.checks.filter((check) => check.ok).length;
+    if (passed !== result.smoke.checks.length) {
+      throw new Error(`UI browser smoke check failed: ${passed}/${result.smoke.checks.length}`);
+    }
+
+    return {
+      detail: `${passed}/${result.smoke.checks.length} UI browser checks passed`,
       outputPath: result.reportPath
     };
   });
@@ -2455,6 +2499,12 @@ async function generateLocalUiServerSmokeReport(
   return writeLocalUiServerSmokeReport(makeLocalUiServerPaths(), { port });
 }
 
+async function generateUiBrowserSmokeReport(
+  port: number
+): Promise<Awaited<ReturnType<typeof writeUiBrowserSmokeReport>>> {
+  return writeUiBrowserSmokeReport(makeLocalUiServerPaths(), { port });
+}
+
 async function generateCloudReadiness(): Promise<
   Awaited<ReturnType<typeof runCloudReadinessService>>
 > {
@@ -2847,7 +2897,13 @@ function buildAgentRunNextActions(
     actions.push("审阅 latest-writing 和章节草稿，把人工修改沉淀回项目 memory");
   }
 
-  if (goal === "daily" || goal === "ui" || goal === "ui-editor" || goal === "ui-server") {
+  if (
+    goal === "daily" ||
+    goal === "ui" ||
+    goal === "ui-editor" ||
+    goal === "ui-server" ||
+    goal === "ui-browser"
+  ) {
     actions.push("打开 ui/latest-dashboard.html 和 ui/project-editor.html，用本地工作台审阅并编辑章节");
   }
 

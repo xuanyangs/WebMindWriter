@@ -49,7 +49,8 @@ function buildReadiness(scripts: Record<string, string>): CloudReadiness {
     "agent:ui:build",
     "agent:ui:editor:build",
     "agent:ui:serve",
-    "agent:ui:serve:check"
+    "agent:ui:serve:check",
+    "agent:ui:browser:check"
   ];
   const missing = requiredScripts.filter((script) => !scripts[script]);
 

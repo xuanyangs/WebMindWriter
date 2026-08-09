@@ -41,6 +41,7 @@
     "agent:ui:editor:build": "tsx src/index.ts agent:ui:editor:build",
     "agent:ui:serve": "tsx src/index.ts agent:ui:serve",
     "agent:ui:serve:check": "tsx src/index.ts agent:ui:serve:check",
+    "agent:ui:browser:check": "tsx src/index.ts agent:ui:browser:check",
     "agent:cloud:plan": "tsx src/index.ts agent:cloud:plan",
     "agent:cloud:contract": "tsx src/index.ts agent:cloud:contract",
     "agent:cloud:quota": "tsx src/index.ts agent:cloud:quota",

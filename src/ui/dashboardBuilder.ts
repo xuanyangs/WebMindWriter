@@ -135,6 +135,7 @@ function renderDashboard(options: {
     "<h2>下一次运行</h2>",
     "<code>npm run agent:run -- --goal daily</code>",
     "<code>npm run agent:ui:build</code>",
+    "<code>npm run agent:ui:serve</code>",
     "</section>",
     "</main>",
     "</body>",
