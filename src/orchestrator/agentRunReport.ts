@@ -13,6 +13,7 @@ export type AgentRunGoal =
   | "writing"
   | "ui"
   | "ui-editor"
+  | "ui-server"
   | "cloud"
   | "cloud-contract"
   | "cloud-quota"

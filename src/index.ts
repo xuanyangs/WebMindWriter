@@ -68,6 +68,10 @@ import {
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
 import { buildChapterEditor } from "./ui/chapterEditorBuilder.js";
 import { buildDashboard } from "./ui/dashboardBuilder.js";
+import {
+  startLocalUiServer,
+  writeLocalUiServerSmokeReport
+} from "./ui/localUiServer.js";
 
 const program = new Command();
 const agentRunGoals: AgentRunGoal[] = [
@@ -82,6 +86,7 @@ const agentRunGoals: AgentRunGoal[] = [
   "writing",
   "ui",
   "ui-editor",
+  "ui-server",
   "cloud",
   "cloud-contract",
   "cloud-quota",
@@ -877,6 +882,42 @@ program
   });
 
 program
+  .command("agent:ui:serve")
+  .description("Start the local chapter editor API server on a stable port")
+  .option("--port <number>", "HTTP port", "4317")
+  .action(async (options: { port: string }) => {
+    await generateDashboard();
+    await generateChapterEditor();
+    const port = parsePositiveInteger(options.port, "--port");
+    const handle = await startLocalUiServer(makeCloudServicePaths(), port);
+    const editorPath = path.join(config.uiDir, "project-editor.html");
+
+    console.log(`Local UI server: ${handle.baseUrl}`);
+    console.log(`Chapter editor: ${editorPath}`);
+    console.log("Press Ctrl+C to stop.");
+  });
+
+program
+  .command("agent:ui:serve:check")
+  .description("Run a local chapter editor API server smoke check")
+  .option("--port <number>", "HTTP port", "4317")
+  .action(async (options: { port: string }) => {
+    await generateDashboard();
+    await generateChapterEditor();
+    const result = await generateLocalUiServerSmokeReport(
+      parsePositiveInteger(options.port, "--port")
+    );
+    const passed = result.smoke.checks.filter((check) => check.ok).length;
+
+    console.log(`Local UI server smoke JSON: ${result.jsonPath}`);
+    console.log(`Local UI server smoke report: ${result.reportPath}`);
+    console.log(`Local UI server checks: ${passed}/${result.smoke.checks.length}`);
+    if (passed !== result.smoke.checks.length) {
+      throw new Error("Local UI server smoke check failed.");
+    }
+  });
+
+program
   .command("agent:cloud:plan")
   .description("生成云化准备报告：登录、额度、数据边界和管理后台")
   .action(async () => {
@@ -1227,6 +1268,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runWritingGoal(steps, options.liveAi);
     await runUiGoal(steps);
     await runUiEditorGoal(steps);
+    await runUiServerGoal(steps);
     await runCloudGoal(steps, options);
   }
 
@@ -1268,6 +1310,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "ui-editor") {
     await runUiEditorGoal(steps);
+  }
+
+  if (options.goal === "ui-server") {
+    await runUiServerGoal(steps);
   }
 
   if (options.goal === "cloud") {
@@ -1760,6 +1806,23 @@ async function runUiEditorGoal(steps: AgentRunStep[]): Promise<void> {
     return {
       detail: `${passed}/${result.checks.length} 个 UI editor 检查通过`,
       outputPath: result.htmlPath
+    };
+  });
+}
+
+async function runUiServerGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "Local UI server smoke", async () => {
+    await generateDashboard();
+    await generateChapterEditor();
+    const result = await generateLocalUiServerSmokeReport(4317);
+    const passed = result.smoke.checks.filter((check) => check.ok).length;
+    if (passed !== result.smoke.checks.length) {
+      throw new Error(`Local UI server smoke check failed: ${passed}/${result.smoke.checks.length}`);
+    }
+
+    return {
+      detail: `${passed}/${result.smoke.checks.length} local UI server checks passed`,
+      outputPath: result.reportPath
     };
   });
 }
@@ -2386,6 +2449,12 @@ async function generateChapterEditor(): Promise<Awaited<ReturnType<typeof buildC
   });
 }
 
+async function generateLocalUiServerSmokeReport(
+  port: number
+): Promise<Awaited<ReturnType<typeof writeLocalUiServerSmokeReport>>> {
+  return writeLocalUiServerSmokeReport(makeLocalUiServerPaths(), { port });
+}
+
 async function generateCloudReadiness(): Promise<
   Awaited<ReturnType<typeof runCloudReadinessService>>
 > {
@@ -2517,6 +2586,13 @@ function makeCloudServicePaths() {
     databasePath: config.databasePath,
     sampleDir: config.sampleDir,
     feedbackDir: config.feedbackDir
+  };
+}
+
+function makeLocalUiServerPaths() {
+  return {
+    ...makeCloudServicePaths(),
+    uiDir: config.uiDir
   };
 }
 
@@ -2771,7 +2847,7 @@ function buildAgentRunNextActions(
     actions.push("审阅 latest-writing 和章节草稿，把人工修改沉淀回项目 memory");
   }
 
-  if (goal === "daily" || goal === "ui" || goal === "ui-editor") {
+  if (goal === "daily" || goal === "ui" || goal === "ui-editor" || goal === "ui-server") {
     actions.push("打开 ui/latest-dashboard.html 和 ui/project-editor.html，用本地工作台审阅并编辑章节");
   }
 

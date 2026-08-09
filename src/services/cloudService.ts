@@ -148,6 +148,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       writes: ["ui/project-editor.html", "reports/latest-ui-editor.md"]
     },
     {
+      id: "ui-local-server",
+      callable: "startLocalUiServer",
+      purpose: "Start the local chapter editor API server on a stable port.",
+      cliCommand: "agent:ui:serve",
+      httpTarget: "http://127.0.0.1:4317",
+      writes: ["cloud/ui-server-smoke.json", "reports/latest-ui-server.md"]
+    },
+    {
       id: "ideas-http-route",
       callable: "runIdeasService",
       purpose: "通过 authenticated HTTP route 触发 IdeaAgent 生成选题卡",

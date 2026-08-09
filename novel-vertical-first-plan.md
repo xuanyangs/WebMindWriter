@@ -39,7 +39,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.18: Cloud HTTP Project Chapter Revision Read Route | Done | `npm run agent:cloud:http:project-chapter-revision-read:check` and `cloud/http-project-chapter-revision-read-smoke.json` |
 | Loop 6.19: Cloud HTTP Project Chapter Revision Restore Route | Done | `npm run agent:cloud:http:project-chapter-revision-restore:check` and `cloud/http-project-chapter-revision-restore-smoke.json` |
 | Loop 6.20: Local UI Chapter Editor Preview | Done | `npm run agent:ui:editor:build` and `ui/project-editor.html` |
+| Loop 6.21: Local UI Stable Server Command | Done | `npm run agent:ui:serve` and `reports/latest-ui-server.md` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Local UI Chapter Editor Preview, add a local server start command with a stable port so the editor can be opened and used without manually wiring runtime details.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Local UI Stable Server Command, add a browser-level UI smoke check so the generated dashboard/editor can be verified against the running local API before packaging the desktop workflow.

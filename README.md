@@ -228,6 +228,16 @@ npm run agent:ui:build
 npm run agent:ui:editor:build
 ```
 
+启动本地章节编辑器 API server：
+```bash
+npm run agent:ui:serve
+```
+
+验证本地章节编辑器 API server：
+```bash
+npm run agent:ui:serve:check
+```
+
 生成云化准备报告和 JSON 清单：
 
 ```bash
@@ -360,6 +370,7 @@ npm run agent:run -- --goal project
 npm run agent:run -- --goal writing
 npm run agent:run -- --goal ui
 npm run agent:run -- --goal ui-editor
+npm run agent:run -- --goal ui-server
 npm run agent:run -- --goal cloud
 npm run agent:run -- --goal cloud-contract
 npm run agent:run -- --goal cloud-quota
@@ -453,6 +464,7 @@ reports/latest-cloud-http-project-chapter-save.md
 reports/latest-cloud-http-project-chapter-revisions.md
 reports/latest-cloud-http-project-chapter-revision-read.md
 reports/latest-cloud-http-project-chapter-revision-restore.md
+reports/latest-ui-server.md
 reports/latest-agent-run.md
 reports/latest-agent-run.json
 ui/latest-dashboard.html
@@ -477,6 +489,7 @@ cloud/http-project-chapter-save-smoke.json
 cloud/http-project-chapter-revisions-smoke.json
 cloud/http-project-chapter-revision-read-smoke.json
 cloud/http-project-chapter-revision-restore-smoke.json
+cloud/ui-server-smoke.json
 projects/<project-id>/
 projects/<project-id>/chapters/chapter-001.md
 samples/book-openings/*.md
