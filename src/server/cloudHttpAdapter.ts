@@ -11,11 +11,19 @@ import {
 export type CloudHttpRequest = {
   method: "GET" | "POST";
   path: string;
+  session?: CloudHttpSession;
 };
 
 export type CloudHttpResponse = {
   status: number;
   body: Record<string, unknown>;
+};
+
+export type CloudHttpRole = "public" | "author" | "project-owner" | "admin";
+
+export type CloudHttpSession = {
+  userId: string;
+  role: CloudHttpRole;
 };
 
 export type CloudHttpSmokeResult = {
@@ -33,6 +41,8 @@ export type CloudHttpServerSmokeResult = CloudHttpSmokeResult & {
   baseUrl: string;
 };
 
+export type CloudHttpAuthSmokeResult = CloudHttpSmokeResult;
+
 export async function handleCloudHttpRequest(
   request: CloudHttpRequest,
   paths: CloudServicePaths
@@ -49,6 +59,9 @@ export async function handleCloudHttpRequest(
   }
 
   if (request.method === "GET" && request.path === "/api/admin/cloud/readiness") {
+    const denied = authorizeCloudRequest(request, ["admin"]);
+    if (denied) return denied;
+
     const result = await runCloudReadinessService(paths);
     return {
       status: 200,
@@ -62,6 +75,9 @@ export async function handleCloudHttpRequest(
   }
 
   if (request.method === "GET" && request.path === "/api/admin/cloud/services") {
+    const denied = authorizeCloudRequest(request, ["admin"]);
+    if (denied) return denied;
+
     const result = await writeCloudServiceRegistry(paths);
     return {
       status: 200,
@@ -81,6 +97,25 @@ export async function handleCloudHttpRequest(
       error: "Not Found",
       method: request.method,
       path: request.path
+    }
+  };
+}
+
+function authorizeCloudRequest(
+  request: CloudHttpRequest,
+  allowedRoles: CloudHttpRole[]
+): CloudHttpResponse | undefined {
+  if (request.session && allowedRoles.includes(request.session.role)) {
+    return undefined;
+  }
+
+  return {
+    status: 403,
+    body: {
+      ok: false,
+      error: "Forbidden",
+      requiredRoles: allowedRoles,
+      role: request.session?.role ?? "anonymous"
     }
   };
 }
@@ -113,14 +148,16 @@ export async function writeCloudHttpSmokeReport(
       name: "readiness",
       request: {
         method: "GET",
-        path: "/api/admin/cloud/readiness"
+        path: "/api/admin/cloud/readiness",
+        session: adminSession()
       }
     },
     {
       name: "services",
       request: {
         method: "GET",
-        path: "/api/admin/cloud/services"
+        path: "/api/admin/cloud/services",
+        session: adminSession()
       }
     },
     {
@@ -161,6 +198,96 @@ export async function writeCloudHttpSmokeReport(
   return { jsonPath, reportPath, smoke };
 }
 
+export async function writeCloudHttpAuthSmokeReport(
+  paths: CloudServicePaths
+): Promise<{
+  jsonPath: string;
+  reportPath: string;
+  smoke: CloudHttpAuthSmokeResult;
+}> {
+  await fs.mkdir(paths.cloudDir, { recursive: true });
+  await fs.mkdir(paths.reportDir, { recursive: true });
+
+  const requests: {
+    name: string;
+    request: CloudHttpRequest;
+    expectedStatus: number;
+  }[] = [
+    {
+      name: "public-health",
+      request: {
+        method: "GET",
+        path: "/api/health"
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "admin-readiness-allowed",
+      request: {
+        method: "GET",
+        path: "/api/admin/cloud/readiness",
+        session: adminSession()
+      },
+      expectedStatus: 200
+    },
+    {
+      name: "author-readiness-denied",
+      request: {
+        method: "GET",
+        path: "/api/admin/cloud/readiness",
+        session: {
+          userId: "local-author",
+          role: "author"
+        }
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "anonymous-services-denied",
+      request: {
+        method: "GET",
+        path: "/api/admin/cloud/services"
+      },
+      expectedStatus: 403
+    },
+    {
+      name: "unknown-still-404",
+      request: {
+        method: "GET",
+        path: "/api/unknown"
+      },
+      expectedStatus: 404
+    }
+  ];
+
+  const checks = [];
+  for (const item of requests) {
+    const response = await handleCloudHttpRequest(item.request, paths);
+    checks.push({
+      name: item.name,
+      request: item.request,
+      status: response.status,
+      ok: response.status === item.expectedStatus,
+      detail:
+        response.status === item.expectedStatus
+          ? "matched expected status"
+          : `expected ${item.expectedStatus}, received ${response.status}`
+    });
+  }
+
+  const smoke: CloudHttpAuthSmokeResult = {
+    generatedAt: new Date().toISOString(),
+    checks
+  };
+  const jsonPath = path.join(paths.cloudDir, "http-auth-smoke.json");
+  const reportPath = path.join(paths.reportDir, "latest-cloud-http-auth.md");
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(smoke, null, 2)}\n`, "utf8");
+  await fs.writeFile(reportPath, renderHttpAuthSmokeReport(smoke, jsonPath), "utf8");
+
+  return { jsonPath, reportPath, smoke };
+}
+
 export async function writeCloudHttpServerSmokeReport(
   paths: CloudServicePaths
 ): Promise<{
@@ -185,7 +312,8 @@ export async function writeCloudHttpServerSmokeReport(
     {
       name: "services",
       path: "/api/admin/cloud/services",
-      expectedStatus: 200
+      expectedStatus: 200,
+      role: "admin"
     },
     {
       name: "not-found",
@@ -197,7 +325,9 @@ export async function writeCloudHttpServerSmokeReport(
   try {
     const checks = [];
     for (const item of requests) {
-      const response = await fetch(`${baseUrl}${item.path}`);
+      const response = await fetch(`${baseUrl}${item.path}`, {
+        headers: item.role ? { "x-webmind-role": item.role } : undefined
+      });
       checks.push({
         name: item.name,
         request: {
@@ -244,7 +374,8 @@ async function handleNodeRequest(
   const result = await handleCloudHttpRequest(
     {
       method,
-      path: url.pathname
+      path: url.pathname,
+      session: readSession(request)
     },
     paths
   );
@@ -253,6 +384,35 @@ async function handleNodeRequest(
     "content-type": "application/json; charset=utf-8"
   });
   response.end(JSON.stringify(result.body));
+}
+
+function readSession(request: http.IncomingMessage): CloudHttpSession | undefined {
+  const roleHeader = request.headers["x-webmind-role"];
+  const role = Array.isArray(roleHeader) ? roleHeader[0] : roleHeader;
+  if (!isCloudHttpRole(role)) return undefined;
+
+  const userIdHeader = request.headers["x-webmind-user-id"];
+  const userId = Array.isArray(userIdHeader) ? userIdHeader[0] : userIdHeader;
+  return {
+    userId: userId ?? `local-${role}`,
+    role
+  };
+}
+
+function isCloudHttpRole(value: unknown): value is CloudHttpRole {
+  return (
+    value === "public" ||
+    value === "author" ||
+    value === "project-owner" ||
+    value === "admin"
+  );
+}
+
+function adminSession(): CloudHttpSession {
+  return {
+    userId: "local-admin",
+    role: "admin"
+  };
 }
 
 function listen(server: http.Server): Promise<void> {
@@ -324,6 +484,34 @@ function renderHttpServerSmokeReport(
     "1. 给 server 增加配置化端口和进程生命周期管理",
     "2. 接入 AuthPolicyAgent 的 role middleware",
     "3. 选择部署平台后把 createCloudHttpServer 包装成对应 runtime handler",
+    ""
+  ].join("\n");
+}
+
+function renderHttpAuthSmokeReport(
+  smoke: CloudHttpAuthSmokeResult,
+  jsonPath: string
+): string {
+  return [
+    "# Cloud HTTP Auth Smoke Report",
+    "",
+    `- 生成时间：${smoke.generatedAt}`,
+    `- JSON 报告：${jsonPath}`,
+    "",
+    "## Checks",
+    "",
+    "| Check | Method | Path | Status | OK | Detail |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...smoke.checks.map(
+      (check) =>
+        `| ${check.name} | ${check.request.method} | ${check.request.path} | ${check.status} | ${check.ok ? "yes" : "no"} | ${check.detail} |`
+    ),
+    "",
+    "## Next Actions",
+    "",
+    "1. 用真实 Auth provider session 替换 x-webmind-role 本地头",
+    "2. 把 AuthPolicyAgent 的 routeRules 接入更多 Agent API 路由",
+    "3. 为 author/project-owner 路由增加 userId 和 projectId 级校验",
     ""
   ].join("\n");
 }

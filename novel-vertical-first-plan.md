@@ -26,7 +26,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.5: Cloud Service Layer | Done | `npm run agent:cloud:services` and `cloud/service-registry.json` |
 | Loop 6.6: Cloud HTTP Adapter | Done | `npm run agent:cloud:http:check` and `cloud/http-smoke.json` |
 | Loop 6.7: Cloud HTTP Server Smoke | Done | `npm run agent:cloud:http:server:check` and `cloud/http-server-smoke.json` |
+| Loop 6.8: Cloud HTTP Auth Middleware | Done | `npm run agent:cloud:http:auth:check` and `cloud/http-auth-smoke.json` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud HTTP Server Smoke, the next step requires choosing real deployment, database, and auth providers.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud HTTP Auth Middleware, the next step requires choosing real deployment, database, and auth providers or expanding authenticated Agent HTTP routes locally.
