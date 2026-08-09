@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Command } from "commander";
 import { config } from "./config.js";
+import { writeCloudReadiness } from "./cloud/cloudReadiness.js";
 import { makeModelConfig } from "./agents/modelClient.js";
 import { writeAiRecipeReport } from "./agents/recipeAgent.js";
 import { writeAiScanReport } from "./agents/scanAgent.js";
@@ -52,7 +53,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "recipe",
   "project",
   "writing",
-  "ui"
+  "ui",
+  "cloud"
 ];
 
 program
@@ -817,6 +819,15 @@ program
   });
 
 program
+  .command("agent:cloud:plan")
+  .description("生成云化准备报告：登录、额度、数据边界和管理后台")
+  .action(async () => {
+    const result = await generateCloudReadiness();
+    console.log(`Cloud readiness JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud readiness 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -986,6 +997,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runProjectGoal(steps);
     await runWritingGoal(steps, options.liveAi);
     await runUiGoal(steps);
+    await runCloudGoal(steps);
   }
 
   if (options.goal === "scan") {
@@ -1022,6 +1034,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "ui") {
     await runUiGoal(steps);
+  }
+
+  if (options.goal === "cloud") {
+    await runCloudGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1427,6 +1443,18 @@ async function runUiGoal(steps: AgentRunStep[]): Promise<void> {
   });
 }
 
+async function runCloudGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化准备清单", async () => {
+    const result = await generateCloudReadiness();
+    return {
+      detail: result.readiness.deployable
+        ? "本地闭环脚本齐全，可进入云化设计"
+        : "仍有本地闭环脚本缺失",
+      outputPath: result.reportPath
+    };
+  });
+}
+
 async function crawlOnce(options: CliOptions): Promise<void> {
   const jsonStore = new JsonSnapshotStore(config.dataDir);
   const limit = Number(options.limit);
@@ -1801,6 +1829,16 @@ async function generateDashboard(): Promise<Awaited<ReturnType<typeof buildDashb
   });
 }
 
+async function generateCloudReadiness(): Promise<
+  Awaited<ReturnType<typeof writeCloudReadiness>>
+> {
+  return writeCloudReadiness({
+    cloudDir: config.cloudDir,
+    reportDir: config.reportDir,
+    packageJsonPath: path.join(process.cwd(), "package.json")
+  });
+}
+
 async function resolveNovelProject(projectId?: string) {
   const project = projectId
     ? await readNovelProject(config.projectDir, projectId)
@@ -2056,11 +2094,15 @@ function buildAgentRunNextActions(
     actions.push("打开 ui/latest-dashboard.html，用本地工作台审阅完整创作链路");
   }
 
+  if (goal === "daily" || goal === "cloud") {
+    actions.push("审阅 latest-cloud，决定真实云化时选择的部署、数据库和登录方案");
+  }
+
   if (goal === "feedback-review") {
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("下一阶段可以进入 Cloud：评估登录、额度、远程部署和管理后台边界");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI 和云化准备");
   return actions;
 }
 

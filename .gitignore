@@ -9,6 +9,8 @@ feedback/*.json
 projects/*
 !projects/.gitkeep
 ui/*.html
+cloud/*.json
+!cloud/.gitkeep
 data/*.sqlite
 data/*.sqlite-*
 data/*.json

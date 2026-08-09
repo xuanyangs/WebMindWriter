@@ -27,6 +27,7 @@ export const config = {
   feedbackDir: path.resolve(projectRoot, process.env.FEEDBACK_DIR ?? "feedback"),
   projectDir: path.resolve(projectRoot, process.env.PROJECT_DIR ?? "projects"),
   uiDir: path.resolve(projectRoot, process.env.UI_DIR ?? "ui"),
+  cloudDir: path.resolve(projectRoot, process.env.CLOUD_DIR ?? "cloud"),
   databasePath: path.resolve(
     projectRoot,
     process.env.DATABASE_PATH ?? "data/fanqie-loop.sqlite"

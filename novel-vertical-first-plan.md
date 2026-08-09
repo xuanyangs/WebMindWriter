@@ -18,8 +18,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 3: Novel Project | Done | `npm run agent:project:create` and `projects/<project-id>/` |
 | Loop 4: WritingAgent | Done | `npm run agent:write:chapter` and `projects/<project-id>/chapters/chapter-001.md` |
 | Loop 5: Desktop UI | Done | `npm run agent:ui:build` and `ui/latest-dashboard.html` |
-| Loop 6: Cloud Platform | Next | Login, quotas, deployment, admin |
+| Loop 6: Cloud Platform | Done | `npm run agent:cloud:plan` and `cloud/cloud-readiness.json` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Desktop UI, the next highest-value link is Cloud Platform planning and deployment boundaries.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Cloud Platform planning, the next step requires choosing real deployment, database, and auth providers.
