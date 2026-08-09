@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Command } from "commander";
 import { config } from "./config.js";
+import { writeCloudAdminReport } from "./cloud/adminReport.js";
 import { writeCloudApiContract } from "./cloud/cloudContract.js";
 import { writeCloudQuotaReport } from "./cloud/quotaReport.js";
 import { writeCloudReadiness } from "./cloud/cloudReadiness.js";
@@ -58,7 +59,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "ui",
   "cloud",
   "cloud-contract",
-  "cloud-quota"
+  "cloud-quota",
+  "cloud-admin"
 ];
 
 program
@@ -850,6 +852,15 @@ program
   });
 
 program
+  .command("agent:cloud:admin")
+  .description("生成云化管理后台预览：指标、视图、审计和下一步")
+  .action(async () => {
+    const result = await generateCloudAdminReport();
+    console.log(`Cloud admin JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud admin 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1068,6 +1079,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "cloud-quota") {
     await runCloudQuotaGoal(steps, options);
+  }
+
+  if (options.goal === "cloud-admin") {
+    await runCloudAdminGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1489,6 +1504,7 @@ async function runCloudGoal(
 
   await runCloudContractGoal(steps);
   await runCloudQuotaGoal(steps, options);
+  await runCloudAdminGoal(steps);
 }
 
 async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
@@ -1513,6 +1529,18 @@ async function runCloudQuotaGoal(
     });
     return {
       detail: `记录 ${result.quota.usage.doneSteps} 个完成步骤和 ${result.quota.usage.dryRunPromptEvents} 个 dry-run prompt 事件`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runCloudAdminGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化管理后台预览", async () => {
+    const result = await generateCloudAdminReport();
+    const blocked = result.admin.metrics.filter((metric) => metric.status === "blocked").length;
+    const warnings = result.admin.metrics.filter((metric) => metric.status === "warn").length;
+    return {
+      detail: `生成 ${result.admin.metrics.length} 个管理指标，${warnings} 个提醒，${blocked} 个阻塞`,
       outputPath: result.reportPath
     };
   });
@@ -1923,6 +1951,16 @@ async function generateCloudQuotaReport(source?: {
   });
 }
 
+async function generateCloudAdminReport(): Promise<
+  Awaited<ReturnType<typeof writeCloudAdminReport>>
+> {
+  return writeCloudAdminReport({
+    cloudDir: config.cloudDir,
+    reportDir: config.reportDir,
+    projectDir: config.projectDir
+  });
+}
+
 async function resolveNovelProject(projectId?: string) {
   const project = projectId
     ? await readNovelProject(config.projectDir, projectId)
@@ -2178,9 +2216,15 @@ function buildAgentRunNextActions(
     actions.push("打开 ui/latest-dashboard.html，用本地工作台审阅完整创作链路");
   }
 
-  if (goal === "daily" || goal === "cloud" || goal === "cloud-contract" || goal === "cloud-quota") {
+  if (
+    goal === "daily" ||
+    goal === "cloud" ||
+    goal === "cloud-contract" ||
+    goal === "cloud-quota" ||
+    goal === "cloud-admin"
+  ) {
     actions.push(
-      "审阅 latest-cloud、latest-cloud-contract 和 latest-cloud-quota，决定真实云化时选择的部署、数据库、登录和额度方案"
+      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-quota 和 latest-cloud-admin，决定真实云化时选择的部署、数据库、登录、额度和后台方案"
     );
   }
 
@@ -2188,7 +2232,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约和额度估算");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、额度估算和管理后台预览");
   return actions;
 }
 
