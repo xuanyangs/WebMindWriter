@@ -2,11 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Command } from "commander";
 import { config } from "./config.js";
-import { writeCloudAdminReport } from "./cloud/adminReport.js";
-import { writeCloudAuthPolicy } from "./cloud/authPolicy.js";
-import { writeCloudApiContract } from "./cloud/cloudContract.js";
-import { writeCloudQuotaReport } from "./cloud/quotaReport.js";
-import { writeCloudReadiness } from "./cloud/cloudReadiness.js";
 import { makeModelConfig } from "./agents/modelClient.js";
 import { writeAiRecipeReport } from "./agents/recipeAgent.js";
 import { writeAiScanReport } from "./agents/scanAgent.js";
@@ -42,6 +37,14 @@ import {
 } from "./projects/novelProjectStore.js";
 import { SampleStore } from "./samples/sampleStore.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
+import {
+  runCloudAdminService,
+  runCloudApiContractService,
+  runCloudAuthPolicyService,
+  runCloudQuotaService,
+  runCloudReadinessService,
+  writeCloudServiceRegistry
+} from "./services/cloudService.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
 import { buildDashboard } from "./ui/dashboardBuilder.js";
 import { writeChapterDraft } from "./writing/chapterWriter.js";
@@ -62,7 +65,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "cloud-contract",
   "cloud-quota",
   "cloud-admin",
-  "cloud-auth"
+  "cloud-auth",
+  "cloud-services"
 ];
 
 program
@@ -872,6 +876,15 @@ program
   });
 
 program
+  .command("agent:cloud:services")
+  .description("生成 Cloud service 注册表：CLI 到 future HTTP handler 的映射")
+  .action(async () => {
+    const result = await generateCloudServiceRegistry();
+    console.log(`Cloud service registry JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud service registry 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1098,6 +1111,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "cloud-auth") {
     await runCloudAuthGoal(steps);
+  }
+
+  if (options.goal === "cloud-services") {
+    await runCloudServiceRegistryGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1521,6 +1538,7 @@ async function runCloudGoal(
   await runCloudAuthGoal(steps);
   await runCloudQuotaGoal(steps, options);
   await runCloudAdminGoal(steps);
+  await runCloudServiceRegistryGoal(steps);
 }
 
 async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
@@ -1567,6 +1585,16 @@ async function runCloudAdminGoal(steps: AgentRunStep[]): Promise<void> {
     const warnings = result.admin.metrics.filter((metric) => metric.status === "warn").length;
     return {
       detail: `生成 ${result.admin.metrics.length} 个管理指标，${warnings} 个提醒，${blocked} 个阻塞`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runCloudServiceRegistryGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化 Service 注册表", async () => {
+    const result = await generateCloudServiceRegistry();
+    return {
+      detail: `生成 ${result.services.length} 个 service callable 映射`,
       outputPath: result.reportPath
     };
   });
@@ -1947,53 +1975,50 @@ async function generateDashboard(): Promise<Awaited<ReturnType<typeof buildDashb
 }
 
 async function generateCloudReadiness(): Promise<
-  Awaited<ReturnType<typeof writeCloudReadiness>>
+  Awaited<ReturnType<typeof runCloudReadinessService>>
 > {
-  return writeCloudReadiness({
-    cloudDir: config.cloudDir,
-    reportDir: config.reportDir,
-    packageJsonPath: path.join(process.cwd(), "package.json")
-  });
+  return runCloudReadinessService(makeCloudServicePaths());
 }
 
 async function generateCloudApiContract(): Promise<
-  Awaited<ReturnType<typeof writeCloudApiContract>>
+  Awaited<ReturnType<typeof runCloudApiContractService>>
 > {
-  return writeCloudApiContract({
-    cloudDir: config.cloudDir,
-    reportDir: config.reportDir
-  });
+  return runCloudApiContractService(makeCloudServicePaths());
 }
 
 async function generateCloudAuthPolicy(): Promise<
-  Awaited<ReturnType<typeof writeCloudAuthPolicy>>
+  Awaited<ReturnType<typeof runCloudAuthPolicyService>>
 > {
-  return writeCloudAuthPolicy({
-    cloudDir: config.cloudDir,
-    reportDir: config.reportDir
-  });
+  return runCloudAuthPolicyService(makeCloudServicePaths());
 }
 
 async function generateCloudQuotaReport(source?: {
   goal: string;
   steps: AgentRunStep[];
   aiMode: "dry-run" | "live";
-}): Promise<Awaited<ReturnType<typeof writeCloudQuotaReport>>> {
-  return writeCloudQuotaReport({
-    cloudDir: config.cloudDir,
-    reportDir: config.reportDir,
-    source
-  });
+}): Promise<Awaited<ReturnType<typeof runCloudQuotaService>>> {
+  return runCloudQuotaService(makeCloudServicePaths(), source);
 }
 
 async function generateCloudAdminReport(): Promise<
-  Awaited<ReturnType<typeof writeCloudAdminReport>>
+  Awaited<ReturnType<typeof runCloudAdminService>>
 > {
-  return writeCloudAdminReport({
+  return runCloudAdminService(makeCloudServicePaths());
+}
+
+async function generateCloudServiceRegistry(): Promise<
+  Awaited<ReturnType<typeof writeCloudServiceRegistry>>
+> {
+  return writeCloudServiceRegistry(makeCloudServicePaths());
+}
+
+function makeCloudServicePaths() {
+  return {
     cloudDir: config.cloudDir,
     reportDir: config.reportDir,
-    projectDir: config.projectDir
-  });
+    projectDir: config.projectDir,
+    packageJsonPath: path.join(process.cwd(), "package.json")
+  };
 }
 
 async function resolveNovelProject(projectId?: string) {
@@ -2257,10 +2282,11 @@ function buildAgentRunNextActions(
     goal === "cloud-contract" ||
     goal === "cloud-quota" ||
     goal === "cloud-admin" ||
-    goal === "cloud-auth"
+    goal === "cloud-auth" ||
+    goal === "cloud-services"
   ) {
     actions.push(
-      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota 和 latest-cloud-admin，决定真实云化时选择的部署、数据库、登录、额度和后台方案"
+      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin 和 latest-cloud-services，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP adapter 方案"
     );
   }
 
@@ -2268,7 +2294,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算和管理后台预览");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览和 Cloud service 层");
   return actions;
 }
 

@@ -43,6 +43,7 @@
     "agent:cloud:quota": "tsx src/index.ts agent:cloud:quota",
     "agent:cloud:admin": "tsx src/index.ts agent:cloud:admin",
     "agent:cloud:auth": "tsx src/index.ts agent:cloud:auth",
+    "agent:cloud:services": "tsx src/index.ts agent:cloud:services",
     "agent:run": "tsx src/index.ts agent:run",
     "feedback:add": "tsx src/index.ts feedback:add",
     "feedback:list": "tsx src/index.ts feedback:list",
