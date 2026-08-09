@@ -289,6 +289,12 @@ npm run agent:cloud:http:ideas:check
 npm run agent:cloud:http:recipes:check
 ```
 
+运行本地 Cloud HTTP ProjectAgent route smoke check：
+
+```bash
+npm run agent:cloud:http:projects:check
+```
+
 运行 Agent Orchestrator，一次编排扫榜、榜单拆书、本地文本拆书和反馈汇总：
 
 ```bash
@@ -318,6 +324,7 @@ npm run agent:run -- --goal cloud-http-server
 npm run agent:run -- --goal cloud-http-auth
 npm run agent:run -- --goal cloud-http-ideas
 npm run agent:run -- --goal cloud-http-recipes
+npm run agent:run -- --goal cloud-http-projects
 ```
 
 默认不会重新抓取，也不会真实调用模型。需要联网抓榜时加 `--crawl`，需要真实调用模型时加 `--live-ai`：
@@ -381,6 +388,7 @@ reports/latest-cloud-http-server.md
 reports/latest-cloud-http-auth.md
 reports/latest-cloud-http-ideas.md
 reports/latest-cloud-http-recipes.md
+reports/latest-cloud-http-projects.md
 reports/latest-agent-run.md
 reports/latest-agent-run.json
 ui/latest-dashboard.html
@@ -395,6 +403,7 @@ cloud/http-server-smoke.json
 cloud/http-auth-smoke.json
 cloud/http-ideas-smoke.json
 cloud/http-recipes-smoke.json
+cloud/http-projects-smoke.json
 projects/<project-id>/
 projects/<project-id>/chapters/chapter-001.md
 samples/book-openings/*.md

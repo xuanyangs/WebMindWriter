@@ -154,6 +154,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       cliCommand: "agent:recipe",
       httpTarget: "POST /api/recipes",
       writes: ["reports/latest-recipe.md"]
+    },
+    {
+      id: "projects-http-route",
+      callable: "runProjectService",
+      purpose: "通过 authenticated HTTP route 触发 ProjectAgent 创建小说项目",
+      cliCommand: "agent:project:create",
+      httpTarget: "POST /api/projects",
+      writes: ["projects/<project-id>/", "reports/latest-project.md"]
     }
   ];
 }

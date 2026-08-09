@@ -49,6 +49,7 @@
     "agent:cloud:http:auth:check": "tsx src/index.ts agent:cloud:http:auth:check",
     "agent:cloud:http:ideas:check": "tsx src/index.ts agent:cloud:http:ideas:check",
     "agent:cloud:http:recipes:check": "tsx src/index.ts agent:cloud:http:recipes:check",
+    "agent:cloud:http:projects:check": "tsx src/index.ts agent:cloud:http:projects:check",
     "agent:run": "tsx src/index.ts agent:run",
     "feedback:add": "tsx src/index.ts feedback:add",
     "feedback:list": "tsx src/index.ts feedback:list",

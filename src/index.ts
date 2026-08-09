@@ -46,10 +46,12 @@ import {
   writeCloudServiceRegistry
 } from "./services/cloudService.js";
 import { writeIdeasFromBatch } from "./services/ideaService.js";
+import { runProjectService } from "./services/projectService.js";
 import { runRecipeService } from "./services/recipeService.js";
 import {
   writeCloudHttpAuthSmokeReport,
   writeCloudHttpIdeasSmokeReport,
+  writeCloudHttpProjectsSmokeReport,
   writeCloudHttpRecipesSmokeReport,
   writeCloudHttpServerSmokeReport,
   writeCloudHttpSmokeReport
@@ -80,7 +82,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "cloud-http-server",
   "cloud-http-auth",
   "cloud-http-ideas",
-  "cloud-http-recipes"
+  "cloud-http-recipes",
+  "cloud-http-projects"
 ];
 
 program
@@ -944,6 +947,15 @@ program
   });
 
 program
+  .command("agent:cloud:http:projects:check")
+  .description("运行本地 Cloud HTTP ProjectAgent route smoke check")
+  .action(async () => {
+    const result = await generateCloudHttpProjectsSmokeReport();
+    console.log(`Cloud HTTP projects smoke JSON 已生成：${result.jsonPath}`);
+    console.log(`Cloud HTTP projects smoke 报告已生成：${result.reportPath}`);
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -1194,6 +1206,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "cloud-http-recipes") {
     await runCloudHttpRecipesSmokeGoal(steps);
+  }
+
+  if (options.goal === "cloud-http-projects") {
+    await runCloudHttpProjectsSmokeGoal(steps);
   }
 
   const completedAt = new Date().toISOString();
@@ -1623,6 +1639,7 @@ async function runCloudGoal(
   await runCloudHttpAuthSmokeGoal(steps);
   await runCloudHttpIdeasSmokeGoal(steps);
   await runCloudHttpRecipesSmokeGoal(steps);
+  await runCloudHttpProjectsSmokeGoal(steps);
 }
 
 async function runCloudContractGoal(steps: AgentRunStep[]): Promise<void> {
@@ -1734,6 +1751,17 @@ async function runCloudHttpRecipesSmokeGoal(steps: AgentRunStep[]): Promise<void
     const passed = result.smoke.checks.filter((check) => check.ok).length;
     return {
       detail: `${passed}/${result.smoke.checks.length} 个 HTTP RecipeAgent route 检查通过`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runCloudHttpProjectsSmokeGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "云化 HTTP ProjectAgent Smoke", async () => {
+    const result = await generateCloudHttpProjectsSmokeReport();
+    const passed = result.smoke.checks.filter((check) => check.ok).length;
+    return {
+      detail: `${passed}/${result.smoke.checks.length} 个 HTTP ProjectAgent route 检查通过`,
       outputPath: result.reportPath
     };
   });
@@ -2048,23 +2076,18 @@ async function generateProjectFromRecipe(options: {
   force?: boolean;
   reuseExisting?: boolean;
 }): Promise<{
-  project: Awaited<ReturnType<typeof createNovelProject>>;
+  project: Awaited<ReturnType<typeof runProjectService>>["project"];
   reportPath: string;
 }> {
-  const recipePath = latestRecipePath();
-  const recipeMarkdown = await fs.readFile(recipePath, "utf8");
-  const project = await createNovelProject({
+  const result = await runProjectService({
     projectDir: config.projectDir,
-    recipePath,
-    recipeMarkdown,
-    slug: options.slug,
-    title: options.title,
-    force: options.force,
-    reuseExisting: options.reuseExisting
-  });
-  const reportPath = await writeProjectReport(project, config.reportDir);
+    reportDir: config.reportDir
+  }, options);
 
-  return { project, reportPath };
+  return {
+    project: result.project,
+    reportPath: result.reportPath
+  };
 }
 
 async function generateChapterDraft(options: {
@@ -2180,6 +2203,12 @@ async function generateCloudHttpRecipesSmokeReport(): Promise<
   Awaited<ReturnType<typeof writeCloudHttpRecipesSmokeReport>>
 > {
   return writeCloudHttpRecipesSmokeReport(makeCloudServicePaths());
+}
+
+async function generateCloudHttpProjectsSmokeReport(): Promise<
+  Awaited<ReturnType<typeof writeCloudHttpProjectsSmokeReport>>
+> {
+  return writeCloudHttpProjectsSmokeReport(makeCloudServicePaths());
 }
 
 function makeCloudServicePaths() {
@@ -2461,10 +2490,11 @@ function buildAgentRunNextActions(
     goal === "cloud-http-server" ||
     goal === "cloud-http-auth" ||
     goal === "cloud-http-ideas" ||
-    goal === "cloud-http-recipes"
+    goal === "cloud-http-recipes" ||
+    goal === "cloud-http-projects"
   ) {
     actions.push(
-      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin、latest-cloud-services、latest-cloud-http、latest-cloud-http-server、latest-cloud-http-auth、latest-cloud-http-ideas 和 latest-cloud-http-recipes，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP runtime 方案"
+      "审阅 latest-cloud、latest-cloud-contract、latest-cloud-auth、latest-cloud-quota、latest-cloud-admin、latest-cloud-services、latest-cloud-http、latest-cloud-http-server、latest-cloud-http-auth、latest-cloud-http-ideas、latest-cloud-http-recipes 和 latest-cloud-http-projects，决定真实云化时选择的部署、数据库、登录、额度、后台和 HTTP runtime 方案"
     );
   }
 
@@ -2472,7 +2502,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层、本地 HTTP adapter、本地 HTTP server smoke、HTTP auth middleware、authenticated IdeaAgent HTTP route 和 authenticated RecipeAgent HTTP route");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层、本地 HTTP adapter、本地 HTTP server smoke、HTTP auth middleware、authenticated IdeaAgent/RecipeAgent/ProjectAgent HTTP routes");
   return actions;
 }
 
