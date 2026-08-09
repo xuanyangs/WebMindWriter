@@ -21,7 +21,7 @@ import { runRecipeService } from "../services/recipeService.js";
 import { runWritingService } from "../services/writingService.js";
 
 export type CloudHttpRequest = {
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "OPTIONS";
   path: string;
   query?: Record<string, string>;
   body?: Record<string, unknown>;
@@ -2866,18 +2866,27 @@ export async function writeCloudHttpServerSmokeReport(
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const requests = [
     {
+      name: "cors-preflight",
+      method: "OPTIONS",
+      path: "/api/projects/example/chapters/1",
+      expectedStatus: 204
+    },
+    {
       name: "health",
+      method: "GET",
       path: "/api/health",
       expectedStatus: 200
     },
     {
       name: "services",
+      method: "GET",
       path: "/api/admin/cloud/services",
       expectedStatus: 200,
       role: "admin"
     },
     {
       name: "not-found",
+      method: "GET",
       path: "/api/unknown",
       expectedStatus: 404
     }
@@ -2887,19 +2896,21 @@ export async function writeCloudHttpServerSmokeReport(
     const checks = [];
     for (const item of requests) {
       const response = await fetch(`${baseUrl}${item.path}`, {
+        method: item.method,
         headers: item.role ? { "x-webmind-role": item.role } : undefined
       });
+      const cors = response.headers.get("access-control-allow-origin");
       checks.push({
         name: item.name,
         request: {
-          method: "GET" as const,
+          method: item.method as CloudHttpRequest["method"],
           path: item.path
         },
         status: response.status,
-        ok: response.status === item.expectedStatus,
+        ok: response.status === item.expectedStatus && cors === "*",
         detail:
-          response.status === item.expectedStatus
-            ? "matched expected status"
+          response.status === item.expectedStatus && cors === "*"
+            ? "matched expected status and CORS header"
             : `expected ${item.expectedStatus}, received ${response.status}`
       });
     }
@@ -2930,6 +2941,19 @@ async function handleNodeRequest(
   response: http.ServerResponse,
   paths: CloudServicePaths
 ): Promise<void> {
+  const headers = {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type, x-webmind-role, x-webmind-user-id, x-webmind-project-ids",
+    "content-type": "application/json; charset=utf-8"
+  };
+
+  if (request.method === "OPTIONS") {
+    response.writeHead(204, headers);
+    response.end();
+    return;
+  }
+
   const method = request.method === "POST" ? "POST" : "GET";
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
   let body: Record<string, unknown> | undefined;
@@ -2944,9 +2968,7 @@ async function handleNodeRequest(
         field: error.field,
         message: error.message
       };
-      response.writeHead(400, {
-        "content-type": "application/json; charset=utf-8"
-      });
+      response.writeHead(400, headers);
       response.end(JSON.stringify(result));
       return;
     }
@@ -2965,9 +2987,7 @@ async function handleNodeRequest(
     paths
   );
 
-  response.writeHead(result.status, {
-    "content-type": "application/json; charset=utf-8"
-  });
+  response.writeHead(result.status, headers);
   response.end(JSON.stringify(result.body));
 }
 

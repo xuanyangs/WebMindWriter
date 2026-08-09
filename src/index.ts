@@ -66,6 +66,7 @@ import {
   writeCloudHttpWritingSmokeReport
 } from "./server/cloudHttpAdapter.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
+import { buildChapterEditor } from "./ui/chapterEditorBuilder.js";
 import { buildDashboard } from "./ui/dashboardBuilder.js";
 
 const program = new Command();
@@ -80,6 +81,7 @@ const agentRunGoals: AgentRunGoal[] = [
   "project",
   "writing",
   "ui",
+  "ui-editor",
   "cloud",
   "cloud-contract",
   "cloud-quota",
@@ -864,6 +866,17 @@ program
   });
 
 program
+  .command("agent:ui:editor:build")
+  .description("生成本地章节编辑器 HTML")
+  .action(async () => {
+    const result = await generateChapterEditor();
+    const passed = result.checks.filter((check) => check.ok).length;
+    console.log(`本地章节编辑器已生成：${result.htmlPath}`);
+    console.log(`UI 编辑器报告已生成：${result.reportPath}`);
+    console.log(`UI 编辑器检查：${passed}/${result.checks.length}`);
+  });
+
+program
   .command("agent:cloud:plan")
   .description("生成云化准备报告：登录、额度、数据边界和管理后台")
   .action(async () => {
@@ -1213,6 +1226,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runProjectGoal(steps);
     await runWritingGoal(steps, options.liveAi);
     await runUiGoal(steps);
+    await runUiEditorGoal(steps);
     await runCloudGoal(steps, options);
   }
 
@@ -1250,6 +1264,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "ui") {
     await runUiGoal(steps);
+  }
+
+  if (options.goal === "ui-editor") {
+    await runUiEditorGoal(steps);
   }
 
   if (options.goal === "cloud") {
@@ -1730,6 +1748,17 @@ async function runUiGoal(steps: AgentRunStep[]): Promise<void> {
     const result = await generateDashboard();
     return {
       detail: "刷新本地静态 HTML 工作台",
+      outputPath: result.htmlPath
+    };
+  });
+}
+
+async function runUiEditorGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "本地章节编辑器", async () => {
+    const result = await generateChapterEditor();
+    const passed = result.checks.filter((check) => check.ok).length;
+    return {
+      detail: `${passed}/${result.checks.length} 个 UI editor 检查通过`,
       outputPath: result.htmlPath
     };
   });
@@ -2349,6 +2378,14 @@ async function generateDashboard(): Promise<Awaited<ReturnType<typeof buildDashb
   });
 }
 
+async function generateChapterEditor(): Promise<Awaited<ReturnType<typeof buildChapterEditor>>> {
+  return buildChapterEditor({
+    reportDir: config.reportDir,
+    projectDir: config.projectDir,
+    uiDir: config.uiDir
+  });
+}
+
 async function generateCloudReadiness(): Promise<
   Awaited<ReturnType<typeof runCloudReadinessService>>
 > {
@@ -2734,8 +2771,8 @@ function buildAgentRunNextActions(
     actions.push("审阅 latest-writing 和章节草稿，把人工修改沉淀回项目 memory");
   }
 
-  if (goal === "daily" || goal === "ui") {
-    actions.push("打开 ui/latest-dashboard.html，用本地工作台审阅完整创作链路");
+  if (goal === "daily" || goal === "ui" || goal === "ui-editor") {
+    actions.push("打开 ui/latest-dashboard.html 和 ui/project-editor.html，用本地工作台审阅并编辑章节");
   }
 
   if (
@@ -2770,7 +2807,7 @@ function buildAgentRunNextActions(
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层、本地 HTTP adapter、本地 HTTP server smoke、HTTP auth middleware、authenticated IdeaAgent/RecipeAgent/ProjectAgent HTTP routes、project-owner WritingAgent HTTP route、HTTP request validation/project ownership、project detail HTTP route、project chapter read HTTP route、project chapter save HTTP route、project chapter revisions HTTP route、project chapter revision read HTTP route 和 project chapter revision restore HTTP route");
+  actions.push("当前垂类 MVP 已覆盖扫榜、拆书、选题、配方、项目、写作、UI、章节编辑器、云化准备、API 契约、登录权限策略、额度估算、管理后台预览、Cloud service 层、本地 HTTP adapter、本地 HTTP server smoke、HTTP auth middleware、authenticated IdeaAgent/RecipeAgent/ProjectAgent HTTP routes、project-owner WritingAgent HTTP route、HTTP request validation/project ownership、project detail HTTP route、project chapter read HTTP route、project chapter save HTTP route、project chapter revisions HTTP route、project chapter revision read HTTP route 和 project chapter revision restore HTTP route");
   return actions;
 }
 

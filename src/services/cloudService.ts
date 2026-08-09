@@ -140,6 +140,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       writes: ["cloud/service-registry.json", "reports/latest-cloud-services.md"]
     },
     {
+      id: "ui-chapter-editor",
+      callable: "buildChapterEditor",
+      purpose: "生成可连接本地 HTTP API 的章节编辑器 HTML",
+      cliCommand: "agent:ui:editor:build",
+      httpTarget: "static artifact",
+      writes: ["ui/project-editor.html", "reports/latest-ui-editor.md"]
+    },
+    {
       id: "ideas-http-route",
       callable: "runIdeasService",
       purpose: "通过 authenticated HTTP route 触发 IdeaAgent 生成选题卡",

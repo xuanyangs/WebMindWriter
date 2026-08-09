@@ -45,6 +45,7 @@ export async function buildDashboard(options: {
     chapterHref: chapterExists && chapterPath
       ? relativeHref(options.uiDir, chapterPath)
       : undefined,
+    editorHref: "project-editor.html",
     builtAt: new Date().toISOString()
   });
 
@@ -93,6 +94,7 @@ function renderDashboard(options: {
   projectId?: string;
   projectHref?: string;
   chapterHref?: string;
+  editorHref: string;
   builtAt: string;
 }): string {
   return [
@@ -123,6 +125,7 @@ function renderDashboard(options: {
     '<div class="actions">',
     options.projectHref ? `<a href="${options.projectHref}">项目</a>` : "<span>项目</span>",
     options.chapterHref ? `<a href="${options.chapterHref}">第一章</a>` : "<span>第一章</span>",
+    `<a href="${options.editorHref}">章节编辑器</a>`,
     "</div>",
     "</section>",
     '<section class="pipeline">',

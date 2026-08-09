@@ -223,6 +223,11 @@ npm run agent:write:chapter:ai -- --dry-run
 npm run agent:ui:build
 ```
 
+生成本地章节编辑器：
+```bash
+npm run agent:ui:editor:build
+```
+
 生成云化准备报告和 JSON 清单：
 
 ```bash
@@ -354,6 +359,7 @@ npm run agent:run -- --goal recipe
 npm run agent:run -- --goal project
 npm run agent:run -- --goal writing
 npm run agent:run -- --goal ui
+npm run agent:run -- --goal ui-editor
 npm run agent:run -- --goal cloud
 npm run agent:run -- --goal cloud-contract
 npm run agent:run -- --goal cloud-quota
@@ -426,6 +432,7 @@ reports/latest-writing.md
 reports/latest-writing-ai.md
 reports/latest-writing-ai.prompt.md
 reports/latest-ui.md
+reports/latest-ui-editor.md
 reports/latest-cloud.md
 reports/latest-cloud-contract.md
 reports/latest-cloud-auth.md
@@ -449,6 +456,7 @@ reports/latest-cloud-http-project-chapter-revision-restore.md
 reports/latest-agent-run.md
 reports/latest-agent-run.json
 ui/latest-dashboard.html
+ui/project-editor.html
 cloud/cloud-readiness.json
 cloud/api-contract.json
 cloud/auth-policy.json
