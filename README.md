@@ -199,6 +199,24 @@ npm run agent:project:create
 npm run agent:project:create -- --slug my-novel
 ```
 
+读取本地小说项目，生成第一章草稿：
+
+```bash
+npm run agent:write:chapter
+```
+
+指定项目和章节：
+
+```bash
+npm run agent:write:chapter -- --project-id novel-15c8e71c --chapter 1
+```
+
+生成 AI 章节写作 prompt，不调用模型：
+
+```bash
+npm run agent:write:chapter:ai -- --dry-run
+```
+
 运行 Agent Orchestrator，一次编排扫榜、榜单拆书、本地文本拆书和反馈汇总：
 
 ```bash
@@ -215,6 +233,7 @@ npm run agent:run -- --goal feedback-review
 npm run agent:run -- --goal idea
 npm run agent:run -- --goal recipe
 npm run agent:run -- --goal project
+npm run agent:run -- --goal writing
 ```
 
 默认不会重新抓取，也不会真实调用模型。需要联网抓榜时加 `--crawl`，需要真实调用模型时加 `--live-ai`：
@@ -232,6 +251,7 @@ npm run agent:teardown:ai -- --limit 5
 npm run agent:ideas:ai -- --limit 5
 npm run agent:idea:ai -- --limit 5
 npm run agent:recipe:ai
+npm run agent:write:chapter:ai
 ```
 
 ## 输出位置
@@ -262,8 +282,12 @@ reports/latest-recipe.md
 reports/latest-recipe-ai.md
 reports/latest-recipe-ai.prompt.md
 reports/latest-project.md
+reports/latest-writing.md
+reports/latest-writing-ai.md
+reports/latest-writing-ai.prompt.md
 reports/latest-agent-run.md
 projects/<project-id>/
+projects/<project-id>/chapters/chapter-001.md
 samples/book-openings/*.md
 feedback/feedback.jsonl
 ```
@@ -343,6 +367,7 @@ npm run agent:teardown:ai -- --dry-run
 npm run agent:teardown:text:ai -- --book-id 7656411449241111576 --dry-run
 npm run agent:ideas:ai -- --dry-run
 npm run agent:recipe:ai -- --dry-run
+npm run agent:write:chapter:ai -- --dry-run
 ```
 
 ## 下一步

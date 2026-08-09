@@ -7,6 +7,7 @@ import { writeAiRecipeReport } from "./agents/recipeAgent.js";
 import { writeAiScanReport } from "./agents/scanAgent.js";
 import { writeAiTeardownReport } from "./agents/teardownAgent.js";
 import { writeAiTextTeardownReport } from "./agents/textTeardownAgent.js";
+import { writeAiChapterDraft } from "./agents/writingAgent.js";
 import { writeAiIdeaReport, writeAiIdeasReport } from "./agents/ideaAgent.js";
 import { crawlFanqieRank } from "./fanqieRankCrawler.js";
 import { exportBatchToCsv, exportSnapshotToCsv } from "./csv.js";
@@ -28,10 +29,16 @@ import {
   type AgentRunStep,
   type AgentRunStepStatus
 } from "./orchestrator/agentRunReport.js";
-import { createNovelProject, writeProjectReport } from "./projects/novelProjectStore.js";
+import {
+  createNovelProject,
+  readLatestNovelProject,
+  readNovelProject,
+  writeProjectReport
+} from "./projects/novelProjectStore.js";
 import { SampleStore } from "./samples/sampleStore.js";
 import { SqliteRankStore } from "./storage/sqliteStore.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
+import { writeChapterDraft } from "./writing/chapterWriter.js";
 
 const program = new Command();
 const agentRunGoals: AgentRunGoal[] = [
@@ -42,7 +49,8 @@ const agentRunGoals: AgentRunGoal[] = [
   "feedback-review",
   "idea",
   "recipe",
-  "project"
+  "project",
+  "writing"
 ];
 
 program
@@ -749,6 +757,55 @@ program
   });
 
 program
+  .command("agent:write:chapter")
+  .description("读取本地小说项目，生成指定章节草稿")
+  .option("--project-id <id>", "项目 ID；默认使用最近更新的项目")
+  .option("--chapter <number>", "章节号", "1")
+  .option("--force", "覆盖已有章节草稿")
+  .action(async (options: {
+    projectId?: string;
+    chapter: string;
+    force?: boolean;
+  }) => {
+    const result = await generateChapterDraft({
+      projectId: options.projectId,
+      chapterNumber: parsePositiveInteger(options.chapter, "--chapter"),
+      force: Boolean(options.force)
+    });
+
+    console.log(
+      result.wroteDraft
+        ? `章节草稿已生成：${result.chapterPath}`
+        : `章节已存在，已跳过：${result.chapterPath}`
+    );
+    console.log(`写作报告已生成：${result.reportPath}`);
+  });
+
+program
+  .command("agent:write:chapter:ai")
+  .description("读取本地小说项目，生成 AI 章节写作 prompt 或模型报告")
+  .option("--project-id <id>", "项目 ID；默认使用最近更新的项目")
+  .option("--chapter <number>", "章节号", "1")
+  .option("--dry-run", "只生成 prompt 文件，不调用模型")
+  .action(async (options: {
+    projectId?: string;
+    chapter: string;
+    dryRun?: boolean;
+  }) => {
+    const reportPath = await generateAiChapterDraft({
+      projectId: options.projectId,
+      chapterNumber: parsePositiveInteger(options.chapter, "--chapter"),
+      dryRun: Boolean(options.dryRun)
+    });
+
+    console.log(
+      options.dryRun
+        ? `AI 章节写作 prompt 已生成：${reportPath}`
+        : `AI 章节写作报告已生成：${reportPath}`
+    );
+  });
+
+program
   .command("agent:run")
   .description("运行 Agent Orchestrator：按目标自动编排扫榜、拆书、文本样本和反馈循环")
   .option(
@@ -916,6 +973,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runIdeaGoal(steps, options.teardownLimit, options.sampleLimit, options.liveAi);
     await runRecipeGoal(steps, options.liveAi);
     await runProjectGoal(steps);
+    await runWritingGoal(steps, options.liveAi);
   }
 
   if (options.goal === "scan") {
@@ -944,6 +1002,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "project") {
     await runProjectGoal(steps);
+  }
+
+  if (options.goal === "writing") {
+    await runWritingGoal(steps, options.liveAi);
   }
 
   const completedAt = new Date().toISOString();
@@ -1283,6 +1345,62 @@ async function runProjectGoal(steps: AgentRunStep[]): Promise<void> {
   });
 }
 
+async function runWritingGoal(
+  steps: AgentRunStep[],
+  liveAi: boolean
+): Promise<void> {
+  await recordAgentStep(steps, "规则章节草稿", async () => {
+    const project = await readLatestNovelProject(config.projectDir);
+    if (!project) {
+      return {
+        status: "skipped",
+        detail: "没有本地小说项目，请先运行 agent:project:create"
+      };
+    }
+
+    const result = await generateChapterDraft({
+      projectId: project.id,
+      chapterNumber: 1,
+      force: false
+    });
+
+    return {
+      status: "done",
+      detail: result.wroteDraft
+        ? `生成第 1 章草稿：${project.id}`
+        : `第 1 章已存在，未覆盖：${project.id}`,
+      outputPath: result.reportPath
+    };
+  });
+
+  await recordAgentStep(
+    steps,
+    liveAi ? "AI 章节写作" : "AI 章节写作 Prompt",
+    async () => {
+      const project = await readLatestNovelProject(config.projectDir);
+      if (!project) {
+        return {
+          status: "skipped",
+          detail: "没有本地小说项目，跳过 AI 章节写作"
+        };
+      }
+
+      const reportPath = await generateAiChapterDraft({
+        projectId: project.id,
+        chapterNumber: 1,
+        dryRun: !liveAi
+      });
+
+      return {
+        detail: liveAi
+          ? `调用模型生成第 1 章写作报告：${project.id}`
+          : `生成第 1 章写作 prompt：${project.id}`,
+        outputPath: reportPath
+      };
+    }
+  );
+}
+
 async function crawlOnce(options: CliOptions): Promise<void> {
   const jsonStore = new JsonSnapshotStore(config.dataDir);
   const limit = Number(options.limit);
@@ -1610,6 +1728,61 @@ async function generateProjectFromRecipe(options: {
   return { project, reportPath };
 }
 
+async function generateChapterDraft(options: {
+  projectId?: string;
+  chapterNumber: number;
+  force: boolean;
+}): Promise<Awaited<ReturnType<typeof writeChapterDraft>>> {
+  const project = await resolveNovelProject(options.projectId);
+  const outlineMarkdown = await fs.readFile(project.paths.outline, "utf8");
+  const memoryMarkdown = await fs.readFile(project.paths.memory, "utf8");
+
+  return writeChapterDraft({
+    project,
+    outlineMarkdown,
+    memoryMarkdown,
+    outputDir: config.reportDir,
+    chapterNumber: options.chapterNumber,
+    force: options.force
+  });
+}
+
+async function generateAiChapterDraft(options: {
+  projectId?: string;
+  chapterNumber: number;
+  dryRun: boolean;
+}): Promise<string> {
+  const project = await resolveNovelProject(options.projectId);
+  const outlineMarkdown = await fs.readFile(project.paths.outline, "utf8");
+  const memoryMarkdown = await fs.readFile(project.paths.memory, "utf8");
+
+  return writeAiChapterDraft({
+    project,
+    outlineMarkdown,
+    memoryMarkdown,
+    outputDir: config.reportDir,
+    chapterNumber: options.chapterNumber,
+    modelConfig: makeModelConfig(process.env),
+    dryRun: options.dryRun
+  });
+}
+
+async function resolveNovelProject(projectId?: string) {
+  const project = projectId
+    ? await readNovelProject(config.projectDir, projectId)
+    : await readLatestNovelProject(config.projectDir);
+
+  if (!project) {
+    throw new Error(
+      projectId
+        ? `Project not found: ${projectId}`
+        : "No local novel project found. Run agent:project:create first."
+    );
+  }
+
+  return project;
+}
+
 function buildBatchAnalysis(
   batch: RankBatch,
   db: SqliteRankStore
@@ -1841,11 +2014,15 @@ function buildAgentRunNextActions(
     actions.push("审阅 latest-project 和 projects 目录，确认项目记忆后进入 WritingAgent");
   }
 
+  if (goal === "daily" || goal === "writing") {
+    actions.push("审阅 latest-writing 和章节草稿，把人工修改沉淀回项目 memory");
+  }
+
   if (goal === "feedback-review") {
     actions.push("把低分反馈对应的 prompt 或规则模板列为下一轮代码改进目标");
   }
 
-  actions.push("下一阶段可以新增 WritingAgent：读取本地项目并生成第一章草稿");
+  actions.push("下一阶段可以新增 Desktop UI：把扫榜到写作的命令链做成可视化工作台");
   return actions;
 }
 

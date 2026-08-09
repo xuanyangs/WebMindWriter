@@ -124,6 +124,47 @@ export async function writeProjectReport(
   return latestPath;
 }
 
+export async function readNovelProject(
+  projectDir: string,
+  projectId: string
+): Promise<NovelProject | undefined> {
+  return readExistingProject(path.join(projectDir, projectId, "project.json"));
+}
+
+export async function readLatestNovelProject(
+  projectDir: string
+): Promise<NovelProject | undefined> {
+  try {
+    const entries = await fs.readdir(projectDir, { withFileTypes: true });
+    const projects: NovelProject[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const project = await readNovelProject(projectDir, entry.name);
+      if (project) projects.push(project);
+    }
+
+    return projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  } catch (error) {
+    if (isMissingFile(error)) return undefined;
+    throw error;
+  }
+}
+
+export async function updateNovelProject(
+  project: NovelProject,
+  updates: Partial<Pick<NovelProject, "status" | "updatedAt">>
+): Promise<NovelProject> {
+  const next: NovelProject = {
+    ...project,
+    ...updates,
+    updatedAt: updates.updatedAt ?? new Date().toISOString()
+  };
+
+  await fs.writeFile(next.paths.metadata, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return next;
+}
+
 function renderProjectReadme(project: NovelProject): string {
   return [
     `# ${project.title}`,
