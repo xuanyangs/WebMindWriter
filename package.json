@@ -18,6 +18,7 @@
     "query:rank": "tsx src/index.ts query:rank",
     "query:book": "tsx src/index.ts query:book",
     "sample:add": "tsx src/index.ts sample:add",
+    "sample:import-dir": "tsx src/index.ts sample:import-dir",
     "sample:list": "tsx src/index.ts sample:list",
     "report": "tsx src/index.ts report",
     "agent:scan": "tsx src/index.ts agent:scan",
@@ -25,6 +26,7 @@
     "agent:scan:ai": "tsx src/index.ts agent:scan:ai",
     "agent:teardown:ai": "tsx src/index.ts agent:teardown:ai",
     "agent:teardown:text": "tsx src/index.ts agent:teardown:text",
+    "agent:teardown:text:batch": "tsx src/index.ts agent:teardown:text:batch",
     "agent:teardown:text:ai": "tsx src/index.ts agent:teardown:text:ai",
     "test": "node --import tsx --test tests/rankDiff.test.ts",
     "check": "tsc --noEmit"

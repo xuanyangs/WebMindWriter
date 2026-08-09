@@ -104,10 +104,22 @@ npm run sample:add -- --book-id 7656411449241111576 --title "重生2009：我靠
 npm run sample:add -- --book-id 7656411449241111576 --title "重生2009：我靠投资成首富" --file ./my-opening.md
 ```
 
+从本地目录批量导入 txt 开局样本，每本只取前 8000 字：
+
+```bash
+npm run sample:import-dir -- --dir F:\Agent\ceshi --limit-chars 8000
+```
+
 基于人工样本文本生成规则版深度拆书报告：
 
 ```bash
 npm run agent:teardown:text -- --book-id 7656411449241111576
+```
+
+批量生成规则版深度拆书报告：
+
+```bash
+npm run agent:teardown:text:batch
 ```
 
 基于人工样本文本生成 AI prompt，不调用模型：

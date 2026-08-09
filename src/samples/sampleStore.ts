@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 
 export type BookOpeningSample = {
@@ -46,9 +47,13 @@ export class SampleStore {
     title?: string;
     sourceUrl?: string;
     inputPath: string;
+    limitChars?: number;
   }): Promise<string> {
     await fs.mkdir(this.openingDir(), { recursive: true });
-    const content = await fs.readFile(options.inputPath, "utf8");
+    const rawContent = await fs.readFile(options.inputPath, "utf8");
+    const content = options.limitChars
+      ? rawContent.slice(0, options.limitChars)
+      : rawContent;
     const filePath = this.samplePath(options.bookId);
 
     await fs.writeFile(
@@ -58,6 +63,8 @@ export class SampleStore {
         `bookId: ${options.bookId}`,
         `title: ${options.title ?? ""}`,
         `sourceUrl: ${options.sourceUrl ?? ""}`,
+        `originalPath: ${options.inputPath}`,
+        `limitChars: ${options.limitChars ?? ""}`,
         `createdAt: ${new Date().toISOString()}`,
         `---`,
         ``,
@@ -68,6 +75,33 @@ export class SampleStore {
     );
 
     return filePath;
+  }
+
+  async importDirectory(options: {
+    dir: string;
+    limitChars: number;
+  }): Promise<Array<{ bookId: string; title: string; filePath: string }>> {
+    await fs.mkdir(this.openingDir(), { recursive: true });
+    const entries = await fs.readdir(options.dir, { withFileTypes: true });
+    const imported: Array<{ bookId: string; title: string; filePath: string }> = [];
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".txt")) continue;
+
+      const inputPath = path.join(options.dir, entry.name);
+      const title = path.basename(entry.name, path.extname(entry.name));
+      const bookId = makeLocalBookId(entry.name);
+      const filePath = await this.importFromFile({
+        bookId,
+        title,
+        inputPath,
+        limitChars: options.limitChars
+      });
+
+      imported.push({ bookId, title, filePath });
+    }
+
+    return imported.sort((a, b) => a.title.localeCompare(b.title));
   }
 
   async read(bookId: string): Promise<BookOpeningSample | undefined> {
@@ -144,6 +178,11 @@ function parseSample(raw: string): {
 
 function safeFileName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function makeLocalBookId(fileName: string): string {
+  const hash = crypto.createHash("sha1").update(fileName).digest("hex").slice(0, 10);
+  return `local-${hash}`;
 }
 
 function isMissingFile(error: unknown): boolean {

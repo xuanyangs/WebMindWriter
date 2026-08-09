@@ -264,6 +264,28 @@ program
   });
 
 program
+  .command("sample:import-dir")
+  .description("从本地目录批量导入 txt 开局样本，只截取前 N 字")
+  .requiredOption("--dir <path>", "本地 txt 文件目录")
+  .option("--limit-chars <number>", "每本导入的最大字符数", "8000")
+  .action(async (options: { dir: string; limitChars: string }) => {
+    const imported = await openSamples().importDirectory({
+      dir: options.dir,
+      limitChars: Number(options.limitChars)
+    });
+
+    if (imported.length === 0) {
+      console.log("没有找到可导入的 .txt 文件。");
+      return;
+    }
+
+    console.log(`已导入 ${imported.length} 本开局样本：`);
+    for (const item of imported) {
+      console.log(`${item.bookId} | ${item.title} | ${item.filePath}`);
+    }
+  });
+
+program
   .command("sample:list")
   .description("列出本地人工样本文本")
   .action(async () => {
@@ -429,6 +451,33 @@ program
     });
 
     console.log(`文本拆书报告已生成：${reportPath}`);
+  });
+
+program
+  .command("agent:teardown:text:batch")
+  .description("批量生成本地人工样本文本的规则版深度拆书报告")
+  .option("--limit <number>", "最多处理样本数，默认全部")
+  .action(async (options: { limit?: string }) => {
+    const samples = await openSamples().list();
+    const selected = options.limit
+      ? samples.slice(0, Number(options.limit))
+      : samples;
+
+    if (selected.length === 0) {
+      console.log("还没有样本文本，请先运行 npm run sample:add 或 npm run sample:import-dir。");
+      return;
+    }
+
+    console.log(`开始生成 ${selected.length} 份文本拆书报告：`);
+    for (const sample of selected) {
+      const item = await findLatestBookItem(sample.bookId);
+      const reportPath = await writeTextTeardownReport({
+        sample,
+        item,
+        outputDir: config.reportDir
+      });
+      console.log(`${sample.bookId} | ${sample.title ?? "未命名"} | ${reportPath}`);
+    }
   });
 
 program
