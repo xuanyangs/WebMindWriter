@@ -73,6 +73,7 @@ import {
   writeLocalUiServerSmokeReport
 } from "./ui/localUiServer.js";
 import { writeUiBrowserSmokeReport } from "./ui/browserSmoke.js";
+import { writeLocalUiLaunchReport } from "./ui/localLaunch.js";
 
 const program = new Command();
 const agentRunGoals: AgentRunGoal[] = [
@@ -89,6 +90,7 @@ const agentRunGoals: AgentRunGoal[] = [
   "ui-editor",
   "ui-server",
   "ui-browser",
+  "ui-launch",
   "cloud",
   "cloud-contract",
   "cloud-quota",
@@ -940,6 +942,52 @@ program
   });
 
 program
+  .command("agent:ui:launch")
+  .description("Build the local UI, verify it, and start the API server")
+  .option("--port <number>", "HTTP port", "4317")
+  .action(async (options: { port: string }) => {
+    const port = parsePositiveInteger(options.port, "--port");
+    await generateDashboard();
+    await generateChapterEditor();
+    const result = await generateLocalUiLaunchReport(port);
+    assertAllChecksPassed(result.launch.checks, "Local UI launch check failed.");
+    let apiBase = result.launch.apiBase;
+    try {
+      const handle = await startLocalUiServer(makeCloudServicePaths(), port);
+      apiBase = handle.baseUrl;
+    } catch (error) {
+      if (!isAddressInUse(error)) {
+        throw error;
+      }
+    }
+
+    console.log(`Local UI launch report: ${result.reportPath}`);
+    console.log(`Local UI manifest: ${result.manifestPath}`);
+    console.log(`API server: ${apiBase}`);
+    console.log(`Dashboard: ${result.launch.dashboardPath}`);
+    console.log(`Editor: ${result.launch.editorPath}`);
+    console.log("Press Ctrl+C to stop if this command started the server.");
+  });
+
+program
+  .command("agent:ui:launch:check")
+  .description("Build and verify the local UI launch manifest without keeping the server open")
+  .option("--port <number>", "HTTP port", "4317")
+  .action(async (options: { port: string }) => {
+    await generateDashboard();
+    await generateChapterEditor();
+    const result = await generateLocalUiLaunchReport(
+      parsePositiveInteger(options.port, "--port")
+    );
+    const passed = result.launch.checks.filter((check) => check.ok).length;
+
+    console.log(`Local UI launch manifest: ${result.manifestPath}`);
+    console.log(`Local UI launch report: ${result.reportPath}`);
+    console.log(`Local UI launch checks: ${passed}/${result.launch.checks.length}`);
+    assertAllChecksPassed(result.launch.checks, "Local UI launch check failed.");
+  });
+
+program
   .command("agent:cloud:plan")
   .description("生成云化准备报告：登录、额度、数据边界和管理后台")
   .action(async () => {
@@ -1292,6 +1340,7 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
     await runUiEditorGoal(steps);
     await runUiServerGoal(steps);
     await runUiBrowserGoal(steps);
+    await runUiLaunchGoal(steps);
     await runCloudGoal(steps, options);
   }
 
@@ -1341,6 +1390,10 @@ async function runAgentOrchestrator(options: AgentRunOptions): Promise<AgentRunR
 
   if (options.goal === "ui-browser") {
     await runUiBrowserGoal(steps);
+  }
+
+  if (options.goal === "ui-launch") {
+    await runUiLaunchGoal(steps);
   }
 
   if (options.goal === "cloud") {
@@ -1866,6 +1919,21 @@ async function runUiBrowserGoal(steps: AgentRunStep[]): Promise<void> {
 
     return {
       detail: `${passed}/${result.smoke.checks.length} UI browser checks passed`,
+      outputPath: result.reportPath
+    };
+  });
+}
+
+async function runUiLaunchGoal(steps: AgentRunStep[]): Promise<void> {
+  await recordAgentStep(steps, "Local UI launch check", async () => {
+    await generateDashboard();
+    await generateChapterEditor();
+    const result = await generateLocalUiLaunchReport(4317);
+    const passed = result.launch.checks.filter((check) => check.ok).length;
+    assertAllChecksPassed(result.launch.checks, "Local UI launch check failed.");
+
+    return {
+      detail: `${passed}/${result.launch.checks.length} local UI launch checks passed`,
       outputPath: result.reportPath
     };
   });
@@ -2505,6 +2573,12 @@ async function generateUiBrowserSmokeReport(
   return writeUiBrowserSmokeReport(makeLocalUiServerPaths(), { port });
 }
 
+async function generateLocalUiLaunchReport(
+  port: number
+): Promise<Awaited<ReturnType<typeof writeLocalUiLaunchReport>>> {
+  return writeLocalUiLaunchReport(makeLocalUiServerPaths(), { port });
+}
+
 async function generateCloudReadiness(): Promise<
   Awaited<ReturnType<typeof runCloudReadinessService>>
 > {
@@ -2776,6 +2850,15 @@ function isMissingFile(error: unknown): boolean {
   );
 }
 
+function isAddressInUse(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EADDRINUSE"
+  );
+}
+
 function parseAgentRunGoal(value: string): AgentRunGoal {
   if (agentRunGoals.includes(value as AgentRunGoal)) {
     return value as AgentRunGoal;
@@ -2800,6 +2883,16 @@ function parseNonNegativeInteger(value: string, name: string): number {
   }
 
   return parsed;
+}
+
+function assertAllChecksPassed(
+  checks: { ok: boolean; name: string; detail: string }[],
+  message: string
+): void {
+  const failed = checks.filter((check) => !check.ok);
+  if (failed.length > 0) {
+    throw new Error(`${message} ${failed.map((check) => `${check.name}: ${check.detail}`).join("; ")}`);
+  }
 }
 
 async function recordAgentStep(
@@ -2902,7 +2995,8 @@ function buildAgentRunNextActions(
     goal === "ui" ||
     goal === "ui-editor" ||
     goal === "ui-server" ||
-    goal === "ui-browser"
+    goal === "ui-browser" ||
+    goal === "ui-launch"
   ) {
     actions.push("打开 ui/latest-dashboard.html 和 ui/project-editor.html，用本地工作台审阅并编辑章节");
   }

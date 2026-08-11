@@ -243,6 +243,16 @@ npm run agent:ui:serve:check
 npm run agent:ui:browser:check
 ```
 
+一键构建、验证并启动本地 UI：
+```bash
+npm run agent:ui:launch
+```
+
+只验证本地 UI launch 闭环：
+```bash
+npm run agent:ui:launch:check
+```
+
 生成云化准备报告和 JSON 清单：
 
 ```bash
@@ -377,6 +387,7 @@ npm run agent:run -- --goal ui
 npm run agent:run -- --goal ui-editor
 npm run agent:run -- --goal ui-server
 npm run agent:run -- --goal ui-browser
+npm run agent:run -- --goal ui-launch
 npm run agent:run -- --goal cloud
 npm run agent:run -- --goal cloud-contract
 npm run agent:run -- --goal cloud-quota
@@ -472,10 +483,12 @@ reports/latest-cloud-http-project-chapter-revision-read.md
 reports/latest-cloud-http-project-chapter-revision-restore.md
 reports/latest-ui-server.md
 reports/latest-ui-browser.md
+reports/latest-ui-launch.md
 reports/latest-agent-run.md
 reports/latest-agent-run.json
 ui/latest-dashboard.html
 ui/project-editor.html
+ui/launch-manifest.json
 cloud/cloud-readiness.json
 cloud/api-contract.json
 cloud/auth-policy.json

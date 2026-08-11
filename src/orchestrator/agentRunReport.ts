@@ -15,6 +15,7 @@ export type AgentRunGoal =
   | "ui-editor"
   | "ui-server"
   | "ui-browser"
+  | "ui-launch"
   | "cloud"
   | "cloud-contract"
   | "cloud-quota"

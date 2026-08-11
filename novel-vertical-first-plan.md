@@ -41,7 +41,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.20: Local UI Chapter Editor Preview | Done | `npm run agent:ui:editor:build` and `ui/project-editor.html` |
 | Loop 6.21: Local UI Stable Server Command | Done | `npm run agent:ui:serve` and `reports/latest-ui-server.md` |
 | Loop 6.22: Local UI Browser Smoke | Done | `npm run agent:ui:browser:check` and `reports/latest-ui-browser.md` |
+| Loop 6.23: Local UI Launch Command | Done | `npm run agent:ui:launch` and `reports/latest-ui-launch.md` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Local UI Browser Smoke, add a single local launch command that builds the UI, starts the API server, writes a launch report, and tells the author exactly which local files/URLs to open.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Local UI Launch Command, add a local operator action panel so the dashboard shows the exact commands and reports for the next author action without reading README.

@@ -164,6 +164,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       writes: ["cloud/ui-browser-smoke.json", "reports/latest-ui-browser.md"]
     },
     {
+      id: "ui-local-launch",
+      callable: "writeLocalUiLaunchReport",
+      purpose: "Build, verify, and describe the one-command local UI launch flow.",
+      cliCommand: "agent:ui:launch",
+      httpTarget: "local launch workflow",
+      writes: ["ui/launch-manifest.json", "reports/latest-ui-launch.md"]
+    },
+    {
       id: "ideas-http-route",
       callable: "runIdeasService",
       purpose: "通过 authenticated HTTP route 触发 IdeaAgent 生成选题卡",
