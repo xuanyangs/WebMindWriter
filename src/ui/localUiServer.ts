@@ -77,6 +77,7 @@ export async function writeLocalUiServerSmokeReport(
     detail: editorPath
   });
 
+  checks.push(await checkDashboardRoot(baseUrl));
   checks.push(await checkHealth(baseUrl));
   checks.push(await checkCorsPreflight(baseUrl));
 
@@ -103,6 +104,32 @@ export async function writeLocalUiServerSmokeReport(
     reportPath,
     smoke
   };
+}
+
+async function checkDashboardRoot(
+  baseUrl: string
+): Promise<LocalUiServerSmoke["checks"][number]> {
+  try {
+    const dashboard = await fetch(`${baseUrl}/`);
+    const contentType = dashboard.headers.get("content-type") ?? "";
+    const html = await dashboard.text();
+    const ok =
+      dashboard.status === 200 &&
+      contentType.includes("text/html") &&
+      html.includes("WebMindWriter 工作台");
+    return {
+      name: "dashboard-root",
+      ok,
+      status: dashboard.status,
+      detail: ok ? "root serves dashboard HTML" : "root dashboard failed"
+    };
+  } catch (error) {
+    return {
+      name: "dashboard-root",
+      ok: false,
+      detail: `root dashboard unreachable: ${formatError(error)}`
+    };
+  }
 }
 
 async function checkHealth(baseUrl: string): Promise<LocalUiServerSmoke["checks"][number]> {

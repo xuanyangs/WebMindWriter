@@ -3075,6 +3075,10 @@ async function handleNodeRequest(
 
   const method = request.method === "POST" ? "POST" : "GET";
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  if (method === "GET" && await serveLocalUiPage(url.pathname, response, paths)) {
+    return;
+  }
+
   let body: Record<string, unknown> | undefined;
 
   try {
@@ -3108,6 +3112,43 @@ async function handleNodeRequest(
 
   response.writeHead(result.status, headers);
   response.end(JSON.stringify(result.body));
+}
+
+async function serveLocalUiPage(
+  pathname: string,
+  response: http.ServerResponse,
+  paths: CloudServicePaths
+): Promise<boolean> {
+  const fileNameByPath: Record<string, string> = {
+    "/": "latest-dashboard.html",
+    "/latest-dashboard.html": "latest-dashboard.html",
+    "/project-editor.html": "project-editor.html"
+  };
+  const fileName = fileNameByPath[pathname];
+  if (!fileName) return false;
+
+  const uiDir = path.join(path.dirname(paths.cloudDir), "ui");
+  try {
+    const html = await fs.readFile(path.join(uiDir, fileName), "utf8");
+    response.writeHead(200, {
+      "access-control-allow-origin": "*",
+      "content-type": "text/html; charset=utf-8"
+    });
+    response.end(html);
+    return true;
+  } catch (error) {
+    if (!isMissingFile(error)) throw error;
+    response.writeHead(404, {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json; charset=utf-8"
+    });
+    response.end(JSON.stringify({
+      ok: false,
+      error: "UI file not found",
+      path: pathname
+    }));
+    return true;
+  }
 }
 
 function readJsonBody(request: http.IncomingMessage): Promise<Record<string, unknown> | undefined> {
