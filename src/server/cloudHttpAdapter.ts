@@ -14,7 +14,9 @@ import {
   runProjectChapterRevisionRestoreService,
   runProjectChapterRevisionService,
   runProjectChapterSaveService,
-  runProjectDetailService
+  runProjectDetailService,
+  runProjectMemoryReadService,
+  runProjectMemorySaveService
 } from "../services/projectDetailService.js";
 import { runProjectService } from "../services/projectService.js";
 import { runRecipeService } from "../services/recipeService.js";
@@ -265,6 +267,91 @@ async function handleCloudHttpRequestUnchecked(
           body: {
             ok: false,
             error: "No latest recipe report. Run agent:recipe first."
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  const projectMemoryRoute = matchProjectMemoryRoute(request.path);
+  if (request.method === "GET" && projectMemoryRoute) {
+    const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
+    if (denied) return denied;
+
+    const ownershipDenied = authorizeProjectOwnership(request, projectMemoryRoute.projectId);
+    if (ownershipDenied) return ownershipDenied;
+
+    try {
+      const result = await runProjectMemoryReadService(
+        {
+          projectDir: paths.projectDir
+        },
+        {
+          projectId: projectMemoryRoute.projectId
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          projectId: result.project.id,
+          title: result.project.title,
+          memory: result.memory
+        }
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
+          }
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  if (request.method === "POST" && projectMemoryRoute) {
+    const denied = authorizeCloudRequest(request, ["project-owner", "admin"]);
+    if (denied) return denied;
+
+    const ownershipDenied = authorizeProjectOwnership(request, projectMemoryRoute.projectId);
+    if (ownershipDenied) return ownershipDenied;
+
+    try {
+      const result = await runProjectMemorySaveService(
+        {
+          projectDir: paths.projectDir
+        },
+        {
+          projectId: projectMemoryRoute.projectId,
+          content: readOptionalString(request.body?.content, "content"),
+          sections: readMemorySectionsBody(request.body?.sections)
+        }
+      );
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          projectId: result.project.id,
+          title: result.project.title,
+          memory: result.memory
+        }
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project not found:")) {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            error: error.message
           }
         };
       }
@@ -747,8 +834,40 @@ function readOptionalString(value: unknown, field: string): string | undefined {
   throw new CloudHttpValidationError(field, `${field} must be a string.`);
 }
 
+function readMemorySectionsBody(value: unknown):
+  | {
+      characters?: string;
+      world?: string;
+      chapterSummaries?: string;
+    }
+  | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new CloudHttpValidationError("sections", "sections must be an object.");
+  }
+
+  const sections = value as Record<string, unknown>;
+  return {
+    characters: readOptionalString(sections.characters, "sections.characters"),
+    world: readOptionalString(sections.world, "sections.world"),
+    chapterSummaries: readOptionalString(
+      sections.chapterSummaries,
+      "sections.chapterSummaries"
+    )
+  };
+}
+
 function matchProjectRoute(pathname: string): { projectId: string } | undefined {
   const match = pathname.match(/^\/api\/projects\/([^/]+)$/);
+  if (!match) return undefined;
+
+  return {
+    projectId: decodeURIComponent(match[1])
+  };
+}
+
+function matchProjectMemoryRoute(pathname: string): { projectId: string } | undefined {
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/memory$/);
   if (!match) return undefined;
 
   return {

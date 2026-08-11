@@ -65,7 +65,7 @@ function buildReadiness(scripts: Record<string, string>): CloudReadiness {
       "榜单采集和 SQLite 存储",
       "扫榜、拆书、选题、配方、项目、写作闭环",
       "AI dry-run prompt 和 OpenAI-compatible modelClient",
-      "本地静态工作台、章节编辑器和操作面板"
+      "本地静态工作台、章节编辑器、项目记忆编辑区和操作面板"
     ],
     requiredEnv: [
       "MODEL_BASE_URL",

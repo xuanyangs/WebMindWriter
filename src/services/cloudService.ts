@@ -228,6 +228,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       writes: ["cloud/http-project-detail-smoke.json", "reports/latest-cloud-http-project-detail.md"]
     },
     {
+      id: "project-memory-http-route",
+      callable: "runProjectMemoryReadService/runProjectMemorySaveService",
+      purpose: "通过 project-owner HTTP route 读取和保存人物库、世界观、章节摘要等项目记忆",
+      cliCommand: "agent:ui:browser:check",
+      httpTarget: "GET/POST /api/projects/{projectId}/memory",
+      writes: ["projects/<project-id>/memory.md", "cloud/ui-browser-smoke.json"]
+    },
+    {
       id: "project-chapter-http-route",
       callable: "runProjectChapterReadService",
       purpose: "通过 project-owner HTTP route 读取小说项目单章 Markdown 内容",

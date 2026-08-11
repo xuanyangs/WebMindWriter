@@ -43,7 +43,10 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.22: Local UI Browser Smoke | Done | `npm run agent:ui:browser:check` and `reports/latest-ui-browser.md` |
 | Loop 6.23: Local UI Launch Command | Done | `npm run agent:ui:launch` and `reports/latest-ui-launch.md` |
 | Loop 6.24: Local Operator Action Panel | Done | `npm run agent:ui:build` and `ui/latest-dashboard.html` |
+| Loop 6.25: Project-State-Aware Dashboard Actions | Done | `npm run agent:ui:build` and `reports/latest-ui.md` |
+| Loop 6.26: Local Project Memory Editor | Done | `ui/project-editor.html` and `GET/POST /api/projects/{projectId}/memory` |
+| Loop 6.27: Product Workspace Shell | Done | dashboard/editor navigation and author-facing workspace layout |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Local Operator Action Panel, make the dashboard actions project-state aware so missing chapters, missing revisions, or stale reports promote the next best author action.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Product Workspace Shell, harden the local author workflow with service-level tests for project memory and chapter revision safety before larger desktop or cloud migrations.

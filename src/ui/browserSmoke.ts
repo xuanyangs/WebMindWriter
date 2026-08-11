@@ -129,7 +129,7 @@ async function executeEditorSmoke(
   };
 
   vm.runInNewContext(
-    `${script}\n;globalThis.__webmindSmoke = { loadProject, loadChapter, loadRevisions };`,
+    `${script}\n;globalThis.__webmindSmoke = { loadProject, loadChapter, loadRevisions, loadMemory };`,
     context
   );
   const smokeApi = (
@@ -138,6 +138,7 @@ async function executeEditorSmoke(
         loadProject: () => Promise<void>;
         loadChapter: () => Promise<void>;
         loadRevisions: () => Promise<void>;
+        loadMemory: () => Promise<void>;
       };
     }
   ).__webmindSmoke;
@@ -170,6 +171,16 @@ async function executeEditorSmoke(
     return {
       ok: dom.element("status").textContent.includes("revisions"),
       detail: `status: ${dom.element("status").textContent}`
+    };
+  }));
+
+  checks.push(await runEditorAction("load-memory", () => smokeApi.loadMemory(), () => {
+    const characters = dom.element("charactersMemory").value;
+    const world = dom.element("worldMemory").value;
+    const summaries = dom.element("chapterSummariesMemory").value;
+    return {
+      ok: [characters, world, summaries].some((value) => value.trim().length > 0),
+      detail: "project memory sections loaded"
     };
   }));
 

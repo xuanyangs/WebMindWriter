@@ -13,8 +13,10 @@ type DashboardAction = {
   label: string;
   kind: "open" | "command" | "report";
   value: string;
+  reason: string;
   href?: string;
   available: boolean;
+  priority: number;
 };
 
 const reportFiles = [
@@ -44,12 +46,16 @@ export async function buildDashboard(options: {
     ? path.join(project.paths.chaptersDir, "chapter-001.md")
     : undefined;
   const chapterExists = chapterPath ? await fileExists(chapterPath) : false;
+  const revisionCount = project
+    ? await countChapterRevisions(project.paths.chaptersDir, 1)
+    : 0;
   const actions = await buildOperatorActions({
     reportDir: options.reportDir,
     uiDir: options.uiDir,
     projectReadmePath: project?.paths.readme,
     chapterPath: chapterExists ? chapterPath : undefined,
-    editorHref: "project-editor.html"
+    editorHref: "project-editor.html",
+    revisionCount
   });
 
   const html = renderDashboard({
@@ -111,24 +117,29 @@ async function buildOperatorActions(options: {
   projectReadmePath?: string;
   chapterPath?: string;
   editorHref: string;
+  revisionCount: number;
 }): Promise<DashboardAction[]> {
   const launchReportHref = await reportHref(options.reportDir, options.uiDir, "latest-ui-launch.md");
   const agentRunHref = await reportHref(options.reportDir, options.uiDir, "latest-agent-run.md");
   const recipeHref = await reportHref(options.reportDir, options.uiDir, "latest-recipe.md");
 
-  return [
+  const actions: DashboardAction[] = [
     {
       label: "启动",
       kind: "command",
       value: "npm run agent:ui:launch",
-      available: true
+      reason: "打开本地 API 和工作台",
+      available: true,
+      priority: 10
     },
     {
       label: "编辑章节",
       kind: "open",
       value: "project-editor.html",
       href: options.editorHref,
-      available: true
+      reason: options.chapterPath ? "当前章节可继续修改" : "先进入编辑器查看项目状态",
+      available: true,
+      priority: options.chapterPath ? 20 : 35
     },
     {
       label: "项目说明",
@@ -137,55 +148,82 @@ async function buildOperatorActions(options: {
       href: options.projectReadmePath
         ? relativeHref(options.uiDir, options.projectReadmePath)
         : undefined,
-      available: Boolean(options.projectReadmePath)
+      reason: options.projectReadmePath ? "查看大纲和项目文件" : "先从配方创建项目",
+      available: Boolean(options.projectReadmePath),
+      priority: options.projectReadmePath ? 45 : 70
     },
     {
       label: "第一章",
       kind: "open",
       value: options.chapterPath ?? "未生成章节",
       href: options.chapterPath ? relativeHref(options.uiDir, options.chapterPath) : undefined,
-      available: Boolean(options.chapterPath)
+      reason: options.chapterPath ? "直接查看当前正文文件" : "当前项目还缺少第一章",
+      available: Boolean(options.chapterPath),
+      priority: options.chapterPath ? 30 : 15
     },
     {
       label: "生成新章",
       kind: "command",
       value: "npm run agent:write:chapter",
-      available: Boolean(options.projectReadmePath)
+      reason: options.chapterPath ? "已有章节时可继续生成下一章草稿" : "缺章节时这是下一步",
+      available: Boolean(options.projectReadmePath),
+      priority: options.chapterPath ? 55 : 12
+    },
+    {
+      label: "查看旧稿",
+      kind: "open",
+      value: `${options.revisionCount} revisions`,
+      href: options.editorHref,
+      reason: options.revisionCount > 0 ? "可在编辑器里预览或恢复旧稿" : "保存章节后会出现旧稿",
+      available: options.revisionCount > 0,
+      priority: options.revisionCount > 0 ? 25 : 75
     },
     {
       label: "每日闭环",
       kind: "command",
       value: "npm run agent:run -- --goal daily",
-      available: true
+      reason: "刷新扫榜、选题、配方、项目、写作和 UI",
+      available: true,
+      priority: 60
     },
     {
       label: "启动校验",
       kind: "command",
       value: "npm run agent:ui:launch:check",
-      available: true
+      reason: "确认本地工作台闭环正常",
+      available: true,
+      priority: 65
     },
     {
       label: "启动报告",
       kind: "report",
       value: "reports/latest-ui-launch.md",
       href: launchReportHref,
-      available: Boolean(launchReportHref)
+      reason: launchReportHref ? "查看最近一次启动校验结果" : "先运行启动校验",
+      available: Boolean(launchReportHref),
+      priority: launchReportHref ? 80 : 68
     },
     {
       label: "总控报告",
       kind: "report",
       value: "reports/latest-agent-run.md",
       href: agentRunHref,
-      available: Boolean(agentRunHref)
+      reason: agentRunHref ? "查看最近一次 daily 全链路" : "先运行每日闭环",
+      available: Boolean(agentRunHref),
+      priority: agentRunHref ? 85 : 62
     },
     {
       label: "配方报告",
       kind: "report",
       value: "reports/latest-recipe.md",
       href: recipeHref,
-      available: Boolean(recipeHref)
+      reason: recipeHref ? "回看当前项目的写作配方" : "先生成选题和配方",
+      available: Boolean(recipeHref),
+      priority: recipeHref ? 90 : 50
     }
   ];
+
+  return actions.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label));
 }
 
 async function reportHref(
@@ -277,6 +315,7 @@ function renderAction(action: DashboardAction): string {
     "<div>",
     `<span>${escapeHtml(action.kind)}</span>`,
     `<h3>${escapeHtml(action.label)}</h3>`,
+    `<p>${escapeHtml(action.reason)}</p>`,
     `<code>${value}</code>`,
     "</div>",
     control,
@@ -402,6 +441,9 @@ a, .actions span, button {
   margin: 0;
   font-size: 15px;
 }
+.op p {
+  font-size: 13px;
+}
 .op code {
   width: 100%;
   justify-content: flex-start;
@@ -506,13 +548,14 @@ function renderUiReport(options: {
     "## 本地操作面板",
     "",
     ...options.actions.map((action, index) =>
-      `${index + 1}. ${action.label}：${action.available ? "ready" : "missing"}，${action.value}`
+      `${index + 1}. ${action.label}：${action.available ? "ready" : "missing"}，${action.reason}，${action.value}`
     ),
     "",
     "## 下一步",
     "",
     "1. 用浏览器打开 `ui/latest-dashboard.html`，从本地操作面板进入章节编辑器或复制命令。",
-    "2. 下一轮把操作面板接入更细的项目状态，例如章节缺失时优先提示生成章节。",
+    "2. 在 `ui/project-editor.html` 维护人物库、世界观和章节摘要。",
+    "3. 下一轮为 project memory、chapter save 和 revision restore 增加 service 级测试。",
     ""
   ].join("\n");
 }
@@ -544,6 +587,24 @@ async function fileExists(filePath: string): Promise<boolean> {
     return true;
   } catch (error) {
     if (isMissingFile(error)) return false;
+    throw error;
+  }
+}
+
+async function countChapterRevisions(
+  chaptersDir: string,
+  chapterNumber: number
+): Promise<number> {
+  const prefix = `chapter-${String(chapterNumber).padStart(3, "0")}-`;
+  try {
+    const entries = await fs.readdir(path.join(chaptersDir, ".revisions"), {
+      withFileTypes: true
+    });
+    return entries.filter(
+      (entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith(".md")
+    ).length;
+  } catch (error) {
+    if (isMissingFile(error)) return 0;
     throw error;
   }
 }

@@ -10,6 +10,7 @@ type EditorCheck = {
 
 const requiredApiMarkers = [
   "/api/projects/",
+  "/memory",
   "/chapters/",
   "/revisions",
   "/restore"
@@ -78,6 +79,11 @@ function renderEditor(options: {
     "<h1>WebMindWriter 章节编辑器</h1>",
     `<p id="projectTitle">${escapeHtml(options.title || "未选择项目")}</p>`,
     "</div>",
+    '<nav class="nav">',
+    '<a href="latest-dashboard.html">工作台</a>',
+    '<a href="#chapterContent">正文</a>',
+    '<a href="#charactersMemory">记忆</a>',
+    "</nav>",
     `<span class="stamp">${escapeHtml(options.builtAt)}</span>`,
     "</section>",
     '<section class="toolbar" aria-label="编辑控制">',
@@ -89,6 +95,8 @@ function renderEditor(options: {
     button("saveChapter", "保存"),
     button("loadRevisions", "版本"),
     button("restoreRevision", "恢复"),
+    button("loadMemory", "记忆"),
+    button("saveMemory", "存记忆"),
     "</section>",
     '<section class="workspace">',
     '<aside class="panel">',
@@ -107,6 +115,17 @@ function renderEditor(options: {
     "<h2>旧稿</h2>",
     '<pre id="revisionPreview"></pre>',
     "</div>",
+    '<section class="memory-editor" aria-label="项目记忆">',
+    '<div class="editor-head">',
+    "<h2>项目记忆</h2>",
+    '<span id="memoryStatus">memory ready</span>',
+    "</div>",
+    '<div class="memory-grid">',
+    memoryTextarea("人物库", "charactersMemory"),
+    memoryTextarea("世界观", "worldMemory"),
+    memoryTextarea("章节摘要", "chapterSummariesMemory"),
+    "</div>",
+    "</section>",
     "</section>",
     "</section>",
     "</main>",
@@ -136,6 +155,15 @@ function button(id: string, label: string): string {
   return `<button id="${id}" type="button">${escapeHtml(label)}</button>`;
 }
 
+function memoryTextarea(label: string, id: string): string {
+  return [
+    "<label>",
+    `<span>${escapeHtml(label)}</span>`,
+    `<textarea id="${id}" spellcheck="false"></textarea>`,
+    "</label>"
+  ].join("");
+}
+
 function renderScript(): string {
   return String.raw`
 const state = {
@@ -160,8 +188,16 @@ function chapterPath() {
   return apiBase() + "/api/projects/" + projectId() + "/chapters/" + chapterNumber();
 }
 
+function memoryPath() {
+  return apiBase() + "/api/projects/" + projectId() + "/memory";
+}
+
 function setStatus(value) {
   $("status").textContent = value;
+}
+
+function setMemoryStatus(value) {
+  $("memoryStatus").textContent = value;
 }
 
 async function requestJson(url, options = {}) {
@@ -190,6 +226,7 @@ async function loadProject() {
     chapterCount: data.chapterCount
   }, null, 2);
   setStatus("project loaded");
+  await loadMemory();
 }
 
 async function loadChapter() {
@@ -250,11 +287,37 @@ async function restoreRevision() {
   await loadRevisions();
 }
 
+async function loadMemory() {
+  setMemoryStatus("loading memory");
+  const data = await requestJson(memoryPath());
+  $("charactersMemory").value = data.memory.sections.characters || "";
+  $("worldMemory").value = data.memory.sections.world || "";
+  $("chapterSummariesMemory").value = data.memory.sections.chapterSummaries || "";
+  setMemoryStatus("memory loaded");
+}
+
+async function saveMemory() {
+  setMemoryStatus("saving memory");
+  await requestJson(memoryPath(), {
+    method: "POST",
+    body: JSON.stringify({
+      sections: {
+        characters: $("charactersMemory").value,
+        world: $("worldMemory").value,
+        chapterSummaries: $("chapterSummariesMemory").value
+      }
+    })
+  });
+  setMemoryStatus("memory saved");
+}
+
 $("loadProject").addEventListener("click", () => loadProject().catch((error) => setStatus(error.message)));
 $("loadChapter").addEventListener("click", () => loadChapter().catch((error) => setStatus(error.message)));
 $("saveChapter").addEventListener("click", () => saveChapter().catch((error) => setStatus(error.message)));
 $("loadRevisions").addEventListener("click", () => loadRevisions().catch((error) => setStatus(error.message)));
 $("restoreRevision").addEventListener("click", () => restoreRevision().catch((error) => setStatus(error.message)));
+$("loadMemory").addEventListener("click", () => loadMemory().catch((error) => setMemoryStatus(error.message)));
+$("saveMemory").addEventListener("click", () => saveMemory().catch((error) => setMemoryStatus(error.message)));
 $("revisionPreview").addEventListener("dblclick", () => restoreRevision().catch((error) => setStatus(error.message)));
 `;
 }
@@ -281,6 +344,23 @@ body {
   padding-bottom: 16px;
   border-bottom: 1px solid #d6ddd5;
 }
+.nav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.nav a {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid #b9c3bb;
+  border-radius: 6px;
+  color: #17201c;
+  background: #fff;
+  text-decoration: none;
+  font-size: 13px;
+}
 h1, h2, p { margin: 0; }
 h1 { font-size: 26px; font-weight: 700; }
 h2 { font-size: 14px; font-weight: 700; }
@@ -288,7 +368,7 @@ p, .stamp { color: #56615a; }
 .stamp { font-size: 13px; }
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(200px, 1.2fr) minmax(180px, 1fr) 92px repeat(5, 76px);
+  grid-template-columns: minmax(200px, 1.2fr) minmax(180px, 1fr) 92px repeat(7, 76px);
   gap: 8px;
   align-items: end;
   padding: 14px 0;
@@ -357,7 +437,7 @@ pre {
 }
 .editor {
   display: grid;
-  grid-template-rows: auto minmax(420px, 1fr) minmax(180px, 28vh);
+  grid-template-rows: auto minmax(420px, 1fr) minmax(180px, 24vh) auto;
   gap: 10px;
 }
 .editor-head {
@@ -365,7 +445,7 @@ pre {
   align-items: center;
   justify-content: space-between;
 }
-#status {
+#status, #memoryStatus {
   min-height: 24px;
   padding: 3px 8px;
   border: 1px solid #cbd4cd;
@@ -393,9 +473,27 @@ textarea {
 #revisionPreview {
   min-height: 160px;
 }
+.memory-editor {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+.memory-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.memory-grid label {
+  min-width: 0;
+}
+.memory-grid textarea {
+  min-height: 180px;
+  font-size: 14px;
+}
 @media (max-width: 920px) {
   .toolbar, .workspace { grid-template-columns: 1fr; }
   .topbar { align-items: flex-start; flex-direction: column; }
+  .memory-grid { grid-template-columns: 1fr; }
 }
 `;
 }
@@ -426,6 +524,19 @@ function validateEditorHtml(html: string, projectId?: string): EditorCheck[] {
       name: "restore-action",
       ok: html.includes("restoreRevision") && html.includes("restored from local editor"),
       detail: "restore action is wired"
+    },
+    {
+      name: "memory-editor",
+      ok:
+        html.includes("charactersMemory") &&
+        html.includes("worldMemory") &&
+        html.includes("chapterSummariesMemory"),
+      detail: "project memory sections are editable"
+    },
+    {
+      name: "memory-save-action",
+      ok: html.includes("saveMemory") && html.includes("/memory"),
+      detail: "memory save action is wired"
     }
   ];
 }
@@ -452,7 +563,7 @@ function renderEditorReport(options: {
     "## Next Actions",
     "",
     "1. 启动本地 HTTP server 后打开 `ui/project-editor.html` 进行人工写作流测试。",
-    "2. 把编辑器入口固定到 `ui/latest-dashboard.html`。",
+    "2. 在项目记忆区维护人物库、世界观和章节摘要，再继续写下一章。",
     "3. 后续把静态编辑器升级为带自动 server lifecycle 的本地桌面工作台。",
     ""
   ].join("\n");

@@ -26,6 +26,23 @@ export type ProjectDetailResult = {
   chapters: ProjectDetailChapter[];
 };
 
+export type ProjectMemorySections = {
+  characters: string;
+  world: string;
+  chapterSummaries: string;
+};
+
+export type ProjectMemoryReadResult = {
+  project: NovelProject;
+  memory: {
+    path: string;
+    sizeBytes: number;
+    updatedAt: string;
+    content: string;
+    sections: ProjectMemorySections;
+  };
+};
+
 export type ProjectChapterReadResult = {
   project: NovelProject;
   chapter: ProjectDetailChapter & {
@@ -65,6 +82,12 @@ export type ProjectChapterRevisionRestoreResult = ProjectChapterSaveResult & {
     content: string;
   };
 };
+
+const memorySectionMap = {
+  characters: "人物库",
+  world: "世界观",
+  chapterSummaries: "章节摘要"
+} as const;
 
 export async function runProjectDetailService(
   paths: ProjectDetailServicePaths,
@@ -128,6 +151,55 @@ export async function runProjectChapterReadService(
 
     throw error;
   }
+}
+
+export async function runProjectMemoryReadService(
+  paths: ProjectDetailServicePaths,
+  options: { projectId: string }
+): Promise<ProjectMemoryReadResult> {
+  const project = await readNovelProject(paths.projectDir, options.projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${options.projectId}`);
+  }
+
+  const rawContent = await readMemoryFile(project);
+  const content = ensureMemorySections(rawContent);
+  const stat = await statMemory(project, content);
+
+  return {
+    project,
+    memory: {
+      path: project.paths.memory,
+      sizeBytes: stat.sizeBytes,
+      updatedAt: stat.updatedAt,
+      content,
+      sections: readMemorySections(content)
+    }
+  };
+}
+
+export async function runProjectMemorySaveService(
+  paths: ProjectDetailServicePaths,
+  options: {
+    projectId: string;
+    content?: string;
+    sections?: Partial<ProjectMemorySections>;
+  }
+): Promise<ProjectMemoryReadResult> {
+  const project = await readNovelProject(paths.projectDir, options.projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${options.projectId}`);
+  }
+
+  const previous = ensureMemorySections(await readMemoryFile(project));
+  const content = options.content !== undefined
+    ? ensureMemorySections(options.content)
+    : writeMemorySections(previous, options.sections ?? {});
+
+  await fs.writeFile(project.paths.memory, content.endsWith("\n") ? content : `${content}\n`, "utf8");
+  await updateNovelProject(project, { status: "drafting" });
+
+  return runProjectMemoryReadService(paths, { projectId: options.projectId });
 }
 
 export async function runProjectChapterSaveService(
@@ -332,6 +404,104 @@ async function readChapters(project: NovelProject): Promise<ProjectDetailChapter
     if (isMissingFile(error)) return [];
     throw error;
   }
+}
+
+async function readMemoryFile(project: NovelProject): Promise<string> {
+  try {
+    return await fs.readFile(project.paths.memory, "utf8");
+  } catch (error) {
+    if (isMissingFile(error)) return "# 写作记忆\n";
+    throw error;
+  }
+}
+
+async function statMemory(
+  project: NovelProject,
+  fallbackContent: string
+): Promise<{ sizeBytes: number; updatedAt: string }> {
+  try {
+    const stat = await fs.stat(project.paths.memory);
+    return {
+      sizeBytes: stat.size,
+      updatedAt: stat.mtime.toISOString()
+    };
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return {
+        sizeBytes: Buffer.byteLength(fallbackContent, "utf8"),
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    throw error;
+  }
+}
+
+function ensureMemorySections(content: string): string {
+  const lines = [content.trim() || "# 写作记忆"];
+  for (const title of Object.values(memorySectionMap)) {
+    if (!new RegExp(`^##\\s+${escapeRegExp(title)}\\s*$`, "m").test(lines[0])) {
+      lines.push("", `## ${title}`, "", "- 待补充。");
+    }
+  }
+
+  return `${lines.join("\n").trim()}\n`;
+}
+
+function readMemorySections(content: string): ProjectMemorySections {
+  return {
+    characters: readMarkdownSection(content, memorySectionMap.characters),
+    world: readMarkdownSection(content, memorySectionMap.world),
+    chapterSummaries: readMarkdownSection(content, memorySectionMap.chapterSummaries)
+  };
+}
+
+function writeMemorySections(
+  content: string,
+  sections: Partial<ProjectMemorySections>
+): string {
+  let next = ensureMemorySections(content);
+  if (sections.characters !== undefined) {
+    next = replaceMarkdownSection(next, memorySectionMap.characters, sections.characters);
+  }
+  if (sections.world !== undefined) {
+    next = replaceMarkdownSection(next, memorySectionMap.world, sections.world);
+  }
+  if (sections.chapterSummaries !== undefined) {
+    next = replaceMarkdownSection(
+      next,
+      memorySectionMap.chapterSummaries,
+      sections.chapterSummaries
+    );
+  }
+
+  return next;
+}
+
+function readMarkdownSection(content: string, title: string): string {
+  const pattern = new RegExp(
+    `^##\\s+${escapeRegExp(title)}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`,
+    "m"
+  );
+  const match = content.match(pattern);
+  return match?.[1]?.trim() ?? "";
+}
+
+function replaceMarkdownSection(content: string, title: string, value: string): string {
+  const section = `## ${title}\n\n${value.trim() || "- 待补充。"}\n`;
+  const pattern = new RegExp(
+    `^##\\s+${escapeRegExp(title)}\\s*\\n[\\s\\S]*?(?=\\n##\\s+|$)`,
+    "m"
+  );
+  if (pattern.test(content)) {
+    return content.replace(pattern, section.trimEnd());
+  }
+
+  return `${content.trim()}\n\n${section}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function writeRevision(
