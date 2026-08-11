@@ -76,6 +76,14 @@ export async function writeUiBrowserSmokeReport(
         name: "dashboard-mentions-server",
         ok: dashboardHtml.includes("agent:ui:serve"),
         detail: "dashboard shows the local server command"
+      },
+      {
+        name: "dashboard-operator-panel",
+        ok:
+          dashboardHtml.includes("operator-action-panel") &&
+          dashboardHtml.includes("npm run agent:ui:launch") &&
+          dashboardHtml.includes("latest-ui-launch.md"),
+        detail: "dashboard shows local operator actions and launch report"
       }
     ];
 
@@ -273,7 +281,7 @@ function renderUiBrowserSmokeReport(smoke: UiBrowserSmoke, jsonPath: string): st
     "## Next Actions",
     "",
     "1. Keep `agent:ui:browser:check` in daily runs while the editor grows.",
-    "2. Add a single launch command that starts the server and opens the editor.",
+    "2. Expand the operator panel with project-specific status actions.",
     "3. Later replace the fake DOM smoke with Playwright when the project adopts browser test dependencies.",
     ""
   ].join("\n");

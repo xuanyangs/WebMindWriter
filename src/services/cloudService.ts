@@ -140,6 +140,14 @@ function buildCloudServiceRegistry(): CloudServiceEntry[] {
       writes: ["cloud/service-registry.json", "reports/latest-cloud-services.md"]
     },
     {
+      id: "ui-dashboard",
+      callable: "buildDashboard",
+      purpose: "生成带本地操作面板、报告入口和项目入口的静态工作台 HTML",
+      cliCommand: "agent:ui:build",
+      httpTarget: "static artifact",
+      writes: ["ui/latest-dashboard.html", "reports/latest-ui.md"]
+    },
+    {
       id: "ui-chapter-editor",
       callable: "buildChapterEditor",
       purpose: "生成可连接本地 HTTP API 的章节编辑器 HTML",

@@ -9,6 +9,14 @@ type DashboardSection = {
   summary: string;
 };
 
+type DashboardAction = {
+  label: string;
+  kind: "open" | "command" | "report";
+  value: string;
+  href?: string;
+  available: boolean;
+};
+
 const reportFiles = [
   ["扫榜", "latest-agent-scan.md"],
   ["拆书", "latest-book-teardown.md"],
@@ -36,9 +44,17 @@ export async function buildDashboard(options: {
     ? path.join(project.paths.chaptersDir, "chapter-001.md")
     : undefined;
   const chapterExists = chapterPath ? await fileExists(chapterPath) : false;
+  const actions = await buildOperatorActions({
+    reportDir: options.reportDir,
+    uiDir: options.uiDir,
+    projectReadmePath: project?.paths.readme,
+    chapterPath: chapterExists ? chapterPath : undefined,
+    editorHref: "project-editor.html"
+  });
 
   const html = renderDashboard({
     sections,
+    actions,
     projectTitle: project?.title,
     projectId: project?.id,
     projectHref: project ? relativeHref(options.uiDir, project.paths.readme) : undefined,
@@ -58,6 +74,7 @@ export async function buildDashboard(options: {
     renderUiReport({
       htmlPath,
       sections,
+      actions,
       projectId: project?.id,
       chapterPath: chapterExists ? chapterPath : undefined
     }),
@@ -88,8 +105,101 @@ async function readReportSections(
   return sections;
 }
 
+async function buildOperatorActions(options: {
+  reportDir: string;
+  uiDir: string;
+  projectReadmePath?: string;
+  chapterPath?: string;
+  editorHref: string;
+}): Promise<DashboardAction[]> {
+  const launchReportHref = await reportHref(options.reportDir, options.uiDir, "latest-ui-launch.md");
+  const agentRunHref = await reportHref(options.reportDir, options.uiDir, "latest-agent-run.md");
+  const recipeHref = await reportHref(options.reportDir, options.uiDir, "latest-recipe.md");
+
+  return [
+    {
+      label: "启动",
+      kind: "command",
+      value: "npm run agent:ui:launch",
+      available: true
+    },
+    {
+      label: "编辑章节",
+      kind: "open",
+      value: "project-editor.html",
+      href: options.editorHref,
+      available: true
+    },
+    {
+      label: "项目说明",
+      kind: "open",
+      value: options.projectReadmePath ?? "未创建项目",
+      href: options.projectReadmePath
+        ? relativeHref(options.uiDir, options.projectReadmePath)
+        : undefined,
+      available: Boolean(options.projectReadmePath)
+    },
+    {
+      label: "第一章",
+      kind: "open",
+      value: options.chapterPath ?? "未生成章节",
+      href: options.chapterPath ? relativeHref(options.uiDir, options.chapterPath) : undefined,
+      available: Boolean(options.chapterPath)
+    },
+    {
+      label: "生成新章",
+      kind: "command",
+      value: "npm run agent:write:chapter",
+      available: Boolean(options.projectReadmePath)
+    },
+    {
+      label: "每日闭环",
+      kind: "command",
+      value: "npm run agent:run -- --goal daily",
+      available: true
+    },
+    {
+      label: "启动校验",
+      kind: "command",
+      value: "npm run agent:ui:launch:check",
+      available: true
+    },
+    {
+      label: "启动报告",
+      kind: "report",
+      value: "reports/latest-ui-launch.md",
+      href: launchReportHref,
+      available: Boolean(launchReportHref)
+    },
+    {
+      label: "总控报告",
+      kind: "report",
+      value: "reports/latest-agent-run.md",
+      href: agentRunHref,
+      available: Boolean(agentRunHref)
+    },
+    {
+      label: "配方报告",
+      kind: "report",
+      value: "reports/latest-recipe.md",
+      href: recipeHref,
+      available: Boolean(recipeHref)
+    }
+  ];
+}
+
+async function reportHref(
+  reportDir: string,
+  uiDir: string,
+  fileName: string
+): Promise<string | undefined> {
+  const reportPath = path.join(reportDir, fileName);
+  return (await fileExists(reportPath)) ? relativeHref(uiDir, reportPath) : undefined;
+}
+
 function renderDashboard(options: {
   sections: DashboardSection[];
+  actions: DashboardAction[];
   projectTitle?: string;
   projectId?: string;
   projectHref?: string;
@@ -128,6 +238,15 @@ function renderDashboard(options: {
     `<a href="${options.editorHref}">章节编辑器</a>`,
     "</div>",
     "</section>",
+    '<section class="operator-action-panel" aria-label="本地操作面板">',
+    "<header>",
+    "<h2>本地操作面板</h2>",
+    `<strong>${options.actions.filter((action) => action.available).length}/${options.actions.length}</strong>`,
+    "</header>",
+    '<div class="action-grid">',
+    ...options.actions.map(renderAction),
+    "</div>",
+    "</section>",
     '<section class="pipeline">',
     ...options.sections.map(renderSection),
     "</section>",
@@ -138,8 +257,30 @@ function renderDashboard(options: {
     "<code>npm run agent:ui:serve</code>",
     "</section>",
     "</main>",
+    "<script>",
+    renderDashboardScript(),
+    "</script>",
     "</body>",
     "</html>"
+  ].join("\n");
+}
+
+function renderAction(action: DashboardAction): string {
+  const statusClass = action.available ? "ready" : "missing";
+  const value = escapeHtml(action.value);
+  const control = action.href
+    ? `<a href="${action.href}">打开</a>`
+    : `<button type="button" data-copy="${value}" ${action.available ? "" : "disabled"}>复制</button>`;
+
+  return [
+    `<article class="op ${statusClass}">`,
+    "<div>",
+    `<span>${escapeHtml(action.kind)}</span>`,
+    `<h3>${escapeHtml(action.label)}</h3>`,
+    `<code>${value}</code>`,
+    "</div>",
+    control,
+    "</article>"
   ].join("\n");
 }
 
@@ -175,7 +316,7 @@ body {
   margin: 0 auto;
   padding: 28px 0 40px;
 }
-.topbar, .project, .commands {
+.topbar, .project, .commands, .operator-action-panel {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -195,9 +336,10 @@ p { color: #546057; line-height: 1.55; }
 .actions, .commands {
   flex-wrap: wrap;
 }
-a, .actions span {
+a, .actions span, button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 34px;
   padding: 0 12px;
   border: 1px solid #b8c3ba;
@@ -206,10 +348,67 @@ a, .actions span {
   text-decoration: none;
   border-radius: 6px;
   font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
 }
-.actions span {
+.actions span, button:disabled {
   color: #8a938c;
   background: #eef1ed;
+  cursor: default;
+}
+.operator-action-panel {
+  align-items: stretch;
+  flex-direction: column;
+}
+.operator-action-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.operator-action-panel strong {
+  color: #546057;
+  font-size: 13px;
+}
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 10px;
+}
+.op {
+  display: flex;
+  min-height: 132px;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d7ddd5;
+  border-top-width: 4px;
+  border-radius: 8px;
+  background: #ffffff;
+}
+.op.ready { border-top-color: #37785f; }
+.op.missing { border-top-color: #ad7b35; }
+.op div {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+.op span {
+  color: #69746c;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.op h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.op code {
+  width: 100%;
+  justify-content: flex-start;
+  min-height: 30px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.35;
 }
 .pipeline {
   display: grid;
@@ -262,6 +461,24 @@ code {
 @media (max-width: 720px) {
   .topbar, .project { align-items: flex-start; flex-direction: column; }
   .stamp { white-space: normal; }
+  .op { flex-direction: column; }
+}
+`;
+}
+
+function renderDashboardScript(): string {
+  return String.raw`
+for (const button of document.querySelectorAll("[data-copy]")) {
+  button.addEventListener("click", async () => {
+    const value = button.getAttribute("data-copy") || "";
+    try {
+      await navigator.clipboard.writeText(value);
+      button.textContent = "已复制";
+      setTimeout(() => { button.textContent = "复制"; }, 1200);
+    } catch {
+      button.textContent = value;
+    }
+  });
 }
 `;
 }
@@ -269,6 +486,7 @@ code {
 function renderUiReport(options: {
   htmlPath: string;
   sections: DashboardSection[];
+  actions: DashboardAction[];
   projectId?: string;
   chapterPath?: string;
 }): string {
@@ -285,10 +503,16 @@ function renderUiReport(options: {
       `${index + 1}. ${section.title}：${section.status}`
     ),
     "",
+    "## 本地操作面板",
+    "",
+    ...options.actions.map((action, index) =>
+      `${index + 1}. ${action.label}：${action.available ? "ready" : "missing"}，${action.value}`
+    ),
+    "",
     "## 下一步",
     "",
-    "1. 用浏览器打开 `ui/latest-dashboard.html` 审阅当前创作链路。",
-    "2. 后续可把静态工作台升级成带按钮执行命令的本地桌面服务。",
+    "1. 用浏览器打开 `ui/latest-dashboard.html`，从本地操作面板进入章节编辑器或复制命令。",
+    "2. 下一轮把操作面板接入更细的项目状态，例如章节缺失时优先提示生成章节。",
     ""
   ].join("\n");
 }

@@ -42,7 +42,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.21: Local UI Stable Server Command | Done | `npm run agent:ui:serve` and `reports/latest-ui-server.md` |
 | Loop 6.22: Local UI Browser Smoke | Done | `npm run agent:ui:browser:check` and `reports/latest-ui-browser.md` |
 | Loop 6.23: Local UI Launch Command | Done | `npm run agent:ui:launch` and `reports/latest-ui-launch.md` |
+| Loop 6.24: Local Operator Action Panel | Done | `npm run agent:ui:build` and `ui/latest-dashboard.html` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Local UI Launch Command, add a local operator action panel so the dashboard shows the exact commands and reports for the next author action without reading README.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Local Operator Action Panel, make the dashboard actions project-state aware so missing chapters, missing revisions, or stale reports promote the next best author action.

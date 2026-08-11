@@ -223,6 +223,8 @@ npm run agent:write:chapter:ai -- --dry-run
 npm run agent:ui:build
 ```
 
+工作台会生成 `ui/latest-dashboard.html`，包含本地操作面板：启动 UI、打开章节编辑器、查看项目/章节、复制生成与校验命令、打开关键报告。
+
 生成本地章节编辑器：
 ```bash
 npm run agent:ui:editor:build
