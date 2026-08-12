@@ -78,12 +78,20 @@ export async function writeUiBrowserSmokeReport(
         detail: "dashboard shows the local server command"
       },
       {
-        name: "dashboard-operator-panel",
+        name: "workspace-shell",
         ok:
-          dashboardHtml.includes("operator-action-panel") &&
-          dashboardHtml.includes("npm run agent:ui:launch") &&
-          dashboardHtml.includes("latest-ui-launch.md"),
-        detail: "dashboard shows local operator actions and launch report"
+          editorHtml.includes("app-shell") &&
+          editorHtml.includes("agent-pane") &&
+          editorHtml.includes("file-group"),
+        detail: "editor shows product workspace shell"
+      },
+      {
+        name: "workspace-file-tree",
+        ok:
+          editorHtml.includes("小说资料") &&
+          editorHtml.includes("章节内容") &&
+          editorHtml.includes("世界观.md"),
+        detail: "workspace shows novel file tree"
       }
     ];
 
@@ -152,10 +160,11 @@ async function executeEditorSmoke(
   ];
 
   checks.push(await runEditorAction("load-project", () => smokeApi.loadProject(), () => {
-    const meta = dom.element("projectMeta").textContent;
+    const title = dom.element("projectTitle").textContent;
+    const status = dom.element("status").textContent;
     return {
-      ok: meta.includes("chapterCount") && meta.includes(dom.element("projectId").value),
-      detail: meta ? "project metadata rendered" : "project metadata missing"
+      ok: title.trim().length > 0 && status.includes("project loaded"),
+      detail: title ? "project title rendered" : "project title missing"
     };
   }));
 
@@ -258,7 +267,11 @@ function createFakeDom(defaults: Record<string, string>) {
 
   const document = {
     getElementById: element,
-    createElement: (tagName: string) => element(`created:${tagName}:${elements.size}`)
+    createElement: (tagName: string) => element(`created:${tagName}:${elements.size}`),
+    querySelectorAll: (selector: string) => {
+      if (selector === "[data-file-type]") return [];
+      return [];
+    }
   };
 
   return { document, element };

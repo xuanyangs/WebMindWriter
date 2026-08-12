@@ -66,8 +66,8 @@ import {
   writeCloudHttpWritingSmokeReport
 } from "./server/cloudHttpAdapter.js";
 import type { RankBatch, RankingItem, RankSnapshot } from "./types.js";
-import { buildChapterEditor } from "./ui/chapterEditorBuilder.js";
 import { buildDashboard } from "./ui/dashboardBuilder.js";
+import { buildWorkspace } from "./ui/workspaceBuilder.js";
 import {
   startLocalUiServer,
   writeLocalUiServerSmokeReport
@@ -2553,8 +2553,8 @@ async function generateDashboard(): Promise<Awaited<ReturnType<typeof buildDashb
   });
 }
 
-async function generateChapterEditor(): Promise<Awaited<ReturnType<typeof buildChapterEditor>>> {
-  return buildChapterEditor({
+async function generateChapterEditor(): Promise<Awaited<ReturnType<typeof buildWorkspace>>> {
+  return buildWorkspace({
     reportDir: config.reportDir,
     projectDir: config.projectDir,
     uiDir: config.uiDir

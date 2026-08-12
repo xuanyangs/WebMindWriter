@@ -230,7 +230,7 @@ npm run agent:ui:build
 npm run agent:ui:editor:build
 ```
 
-章节编辑器会生成 `ui/project-editor.html`，可编辑正文，也可维护项目记忆里的“人物库 / 世界观 / 章节摘要”。
+章节编辑器会生成 `ui/project-editor.html`，现在是 OpenWrite 风格三栏写作 IDE：左侧 Agent 面板，中间章节编辑器，右侧小说资料和章节文件树。可编辑正文，也可维护“人物库 / 世界观 / 后续剧情规划 / 章节摘要 / 简介”。
 
 启动本地章节编辑器 API server：
 ```bash

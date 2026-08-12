@@ -46,7 +46,8 @@ Do not generalize into a broad content platform yet. First make the web-novel ve
 | Loop 6.25: Project-State-Aware Dashboard Actions | Done | `npm run agent:ui:build` and `reports/latest-ui.md` |
 | Loop 6.26: Local Project Memory Editor | Done | `ui/project-editor.html` and `GET/POST /api/projects/{projectId}/memory` |
 | Loop 6.27: Product Workspace Shell | Done | dashboard/editor navigation and author-facing workspace layout |
+| Loop 6.28: OpenWrite-Style Writing IDE | Done | `http://127.0.0.1:4317/` and `ui/project-editor.html` |
 
 ## Current Rule
 
-When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After Product Workspace Shell, harden the local author workflow with service-level tests for project memory and chapter revision safety before larger desktop or cloud migrations.
+When choosing the next implementation target, prefer the smallest missing link that moves the author from data toward actual writing. After OpenWrite-Style Writing IDE, wire the agent pane buttons to real local actions one by one, starting with scan, teardown, naming, and continue-writing.

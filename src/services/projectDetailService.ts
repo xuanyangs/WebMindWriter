@@ -30,6 +30,8 @@ export type ProjectMemorySections = {
   characters: string;
   world: string;
   chapterSummaries: string;
+  futurePlot: string;
+  synopsis: string;
 };
 
 export type ProjectMemoryReadResult = {
@@ -86,7 +88,9 @@ export type ProjectChapterRevisionRestoreResult = ProjectChapterSaveResult & {
 const memorySectionMap = {
   characters: "人物库",
   world: "世界观",
-  chapterSummaries: "章节摘要"
+  chapterSummaries: "章节摘要",
+  futurePlot: "后续剧情规划",
+  synopsis: "简介"
 } as const;
 
 export async function runProjectDetailService(
@@ -452,7 +456,9 @@ function readMemorySections(content: string): ProjectMemorySections {
   return {
     characters: readMarkdownSection(content, memorySectionMap.characters),
     world: readMarkdownSection(content, memorySectionMap.world),
-    chapterSummaries: readMarkdownSection(content, memorySectionMap.chapterSummaries)
+    chapterSummaries: readMarkdownSection(content, memorySectionMap.chapterSummaries),
+    futurePlot: readMarkdownSection(content, memorySectionMap.futurePlot),
+    synopsis: readMarkdownSection(content, memorySectionMap.synopsis)
   };
 }
 
@@ -473,6 +479,12 @@ function writeMemorySections(
       memorySectionMap.chapterSummaries,
       sections.chapterSummaries
     );
+  }
+  if (sections.futurePlot !== undefined) {
+    next = replaceMarkdownSection(next, memorySectionMap.futurePlot, sections.futurePlot);
+  }
+  if (sections.synopsis !== undefined) {
+    next = replaceMarkdownSection(next, memorySectionMap.synopsis, sections.synopsis);
   }
 
   return next;

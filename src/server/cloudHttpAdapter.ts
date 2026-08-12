@@ -839,6 +839,8 @@ function readMemorySectionsBody(value: unknown):
       characters?: string;
       world?: string;
       chapterSummaries?: string;
+      futurePlot?: string;
+      synopsis?: string;
     }
   | undefined {
   if (value === undefined) return undefined;
@@ -853,7 +855,9 @@ function readMemorySectionsBody(value: unknown):
     chapterSummaries: readOptionalString(
       sections.chapterSummaries,
       "sections.chapterSummaries"
-    )
+    ),
+    futurePlot: readOptionalString(sections.futurePlot, "sections.futurePlot"),
+    synopsis: readOptionalString(sections.synopsis, "sections.synopsis")
   };
 }
 
@@ -3120,7 +3124,7 @@ async function serveLocalUiPage(
   paths: CloudServicePaths
 ): Promise<boolean> {
   const fileNameByPath: Record<string, string> = {
-    "/": "latest-dashboard.html",
+    "/": "project-editor.html",
     "/latest-dashboard.html": "latest-dashboard.html",
     "/project-editor.html": "project-editor.html"
   };

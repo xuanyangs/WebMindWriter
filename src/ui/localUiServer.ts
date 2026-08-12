@@ -116,12 +116,13 @@ async function checkDashboardRoot(
     const ok =
       dashboard.status === 200 &&
       contentType.includes("text/html") &&
-      html.includes("WebMindWriter 工作台");
+      html.includes("app-shell") &&
+      html.includes("WebMindWriter");
     return {
       name: "dashboard-root",
       ok,
       status: dashboard.status,
-      detail: ok ? "root serves dashboard HTML" : "root dashboard failed"
+      detail: ok ? "root serves workspace HTML" : "root workspace failed"
     };
   } catch (error) {
     return {
